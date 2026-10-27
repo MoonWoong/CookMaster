@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidIngredient(data) {
+      return data.keys().hasAll(['id', 'name', 'expiryDate', 'status', 'userId'])
+        && data.keys().hasOnly(['id', 'name', 'expiryDate', 'status', 'category', 'quantity', 'imageUrl', 'userId', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.expiryDate is string && data.expiryDate.size() <= 30
+        && data.status in ['fresh', 'warning', 'expired']
+        && data.userId is string && data.userId.size() <= 128
+        && (!('category' in data) || (data.category is string && data.category.size() <= 50))
+        && (!('quantity' in data) || (data.quantity is string && data.quantity.size() <= 50))
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 100000));
+    }
+
+    function isOwner(userId) {
+      return !isSignedIn() || userId == request.auth.uid || userId.matches('^(guest|user).*$');
+    }
+
+    match /ingredients/{ingredientId} {
+      allow get: if isValidId(ingredientId) && isOwner(resource.data.userId);
+      allow list: if !isSignedIn() || resource.data.userId == request.auth.uid || resource.data.userId.matches('^(guest|user).*$');
+      allow create: if isValidId(ingredientId)
+        && isValidIngredient(incoming())
+        && isOwner(incoming().userId);
+      allow update: if isValidId(ingredientId)
+        && isValidIngredient(incoming())
+        && isOwner(existing().userId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'expiryDate', 'status', 'category', 'quantity', 'imageUrl', 'updatedAt']);
+      allow delete: if isValidId(ingredientId) && isOwner(existing().userId);
+    }
+
+    function isValidFavoriteRecipe(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'ingredients', 'steps'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.title is string && data.title.size() <= 200
+        && data.ingredients is list
+        && data.steps is list;
+    }
+
+    match /favorite_recipes/{recipeId} {
+      allow get: if isValidId(recipeId) && isOwner(resource.data.userId);
+      allow list: if !isSignedIn() || resource.data.userId == request.auth.uid || resource.data.userId.matches('^(guest|user).*$');
+      allow create: if isValidId(recipeId)
+        && isValidFavoriteRecipe(incoming())
+        && isOwner(incoming().userId);
+      allow update: if isValidId(recipeId)
+        && isValidFavoriteRecipe(incoming())
+        && isOwner(existing().userId);
+      allow delete: if isValidId(recipeId) && isOwner(existing().userId);
+    }
+  }
+}

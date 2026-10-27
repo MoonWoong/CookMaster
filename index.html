@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>냉장고를 부탁해 - 스마트 주방 AI 어시스턴트</title>
+    <meta name="description" content="버려지는 식재료 없이 유통기한 임박 재료 구출, 맞춤형 레시피 제안, 쿠팡 쇼핑 리스트까지 제공하는 스마트 냉장고 AI 어시스턴트" />
+    <meta property="og:title" content="냉장고를 부탁해 - 스마트 주방 AI 어시스턴트" />
+    <meta property="og:description" content="버려지는 식재료 없이 유통기한 임박 재료 구출, 맞춤형 레시피 제안, 쿠팡 쇼핑 리스트까지 제공하는 스마트 냉장고 AI 어시스턴트" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <script>
+      // Gracefully ignore Vite WebSocket HMR disconnect errors in iframe preview
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event && event.reason;
+        var msg = String((reason && (reason.message || reason.stack)) || reason || '');
+        if (
+          msg.indexOf('WebSocket') !== -1 ||
+          msg.indexOf('vite:ws') !== -1 ||
+          msg.indexOf('@vite/client') !== -1
+        ) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener('error', function (event) {
+        var msg = String((event && (event.message || event.filename)) || event || '');
+        if (
+          msg.indexOf('WebSocket') !== -1 ||
+          msg.indexOf('vite:ws') !== -1 ||
+          msg.indexOf('@vite/client') !== -1
+        ) {
+          event.preventDefault();
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

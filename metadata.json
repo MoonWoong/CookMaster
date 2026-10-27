@@ -1,0 +1,6 @@
+{
+  "name": "냉장고를 부탁해 - 스마트 주방 AI 어시스턴트",
+  "description": "버려지는 식재료 없이 유통기한 임박 재료 구출, 맞춤형 레시피 제안, 쿠팡 쇼핑 리스트까지 제공하는 스마트 냉장고 AI 어시스턴트",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
