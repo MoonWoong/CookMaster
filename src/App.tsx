@@ -11,6 +11,7 @@ import { ChefTipsBanner } from './components/ChefTipsBanner';
 import { AuthModal } from './components/AuthModal';
 import { PendingIngredientsReviewModal } from './components/PendingIngredientsReviewModal';
 import { RegisterIngredientModal } from './components/RegisterIngredientModal';
+import { FavoriteRecipeDetailModal } from './components/FavoriteRecipeDetailModal';
 import {
   FridgeAssistantData,
   ParsedIngredient,
@@ -37,9 +38,13 @@ import {
   addFavoriteRecipeToFirestore,
   deleteFavoriteRecipeFromFirestore,
 } from './lib/ingredientsService';
-import { ChefHat } from 'lucide-react';
+import { ChefHat, Refrigerator, Star, ShoppingCart } from 'lucide-react';
+
+export type NavTab = 'fridge' | 'favorites' | 'cart';
 
 export default function App() {
+  const [activeNavTab, setActiveNavTab] = useState<NavTab>('fridge');
+  const [detailModalRecipe, setDetailModalRecipe] = useState<FavoriteRecipe | null>(null);
   const [currentUser, setCurrentUser] = useState<SimpleUser | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>('guest');
   const [activePresetId, setActivePresetId] = useState<string | undefined>(undefined);
@@ -383,76 +388,170 @@ export default function App() {
         onLogout={handleLogout}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 sm:py-8 space-y-8">
-        {/* STEP 1: Input Section (Direct Form or AI Scan with Review) */}
-        <InputSection
-          onDirectAddIngredient={handleDirectAddIngredient}
-          onAnalyzeExtract={handleAnalyzeExtract}
-          isLoading={isLoading}
-          onSelectPreset={handleSelectPreset}
-        />
+      {/* Top View Navigation Tabs */}
+      <div className="max-w-6xl w-full mx-auto px-4 pt-4 sm:pt-6">
+        <div className="flex items-center gap-2 p-1.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-x-auto scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setActiveNavTab('fridge')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 ${
+              activeNavTab === 'fridge'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <Refrigerator className="w-4 h-4" />
+            <span>냉장고 & AI 요리 추천</span>
+            {firestoreIngredients.length > 0 && (
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  activeNavTab === 'fridge'
+                    ? 'bg-emerald-800 text-emerald-100'
+                    : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                {firestoreIngredients.length}
+              </span>
+            )}
+          </button>
 
-        {/* Loading Indicator Overlay/Banner */}
-        {isLoading && (
-          <div className="bg-white rounded-3xl p-8 border border-emerald-200 text-center shadow-md animate-pulse">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
-              <ChefHat className="w-8 h-8 animate-spin" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800 mb-1">
-              AI가 식재료와 유통기한을 정밀 분석하고 있습니다...
-            </h3>
-            <p className="text-xs text-slate-500">
-              분석이 완료되면 등록 전 수정 가능한 검토 목록을 띄워드립니다.
-            </p>
+          <button
+            type="button"
+            onClick={() => setActiveNavTab('favorites')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 ${
+              activeNavTab === 'favorites'
+                ? 'bg-amber-500 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <Star
+              className={`w-4 h-4 ${
+                activeNavTab === 'favorites' ? 'fill-white text-white' : 'text-amber-500'
+              }`}
+            />
+            <span>즐겨찾기 레시피</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                activeNavTab === 'favorites'
+                  ? 'bg-amber-700 text-amber-100'
+                  : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {favoriteRecipes.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveNavTab('cart')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 ${
+              activeNavTab === 'cart'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <ShoppingCart className="w-4 h-4 text-emerald-400" />
+            <span>일반 장바구니</span>
+            {shoppingList.length > 0 && (
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                  activeNavTab === 'cart'
+                    ? 'bg-slate-700 text-slate-100'
+                    : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                {shoppingList.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Main Container */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-5 sm:py-7 space-y-8">
+        {/* TAB 1: REFRIGERATOR & AI RECIPES */}
+        {activeNavTab === 'fridge' && (
+          <div className="space-y-8 animate-fadeIn">
+            {/* STEP 1: Input Section (Direct Form or AI Scan with Review) */}
+            <InputSection
+              onDirectAddIngredient={handleDirectAddIngredient}
+              onAnalyzeExtract={handleAnalyzeExtract}
+              isLoading={isLoading}
+              onSelectPreset={handleSelectPreset}
+            />
+
+            {/* Loading Indicator Overlay/Banner */}
+            {isLoading && (
+              <div className="bg-white rounded-3xl p-8 border border-emerald-200 text-center shadow-md animate-pulse">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                  <ChefHat className="w-8 h-8 animate-spin" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-1">
+                  AI가 식재료와 유통기한을 정밀 분석하고 있습니다...
+                </h3>
+                <p className="text-xs text-slate-500">
+                  분석이 완료되면 등록 전 수정 가능한 검토 목록을 띄워드립니다.
+                </p>
+              </div>
+            )}
+
+            {/* STEP 2: Ingredients Dashboard with Inventory Management */}
+            <IngredientsDashboard
+              ingredients={firestoreIngredients}
+              onAddIngredient={handleAddIngredient}
+              onUpdateIngredient={handleUpdateIngredient}
+              onDeleteIngredient={handleDeleteIngredient}
+              onTriggerRecipeGeneration={handleTriggerRecipeFromRegisteredIngredients}
+              isGeneratingRecipes={isGeneratingRecipes}
+              onAddShoppingItem={handleAddShoppingItem}
+            />
+
+            {/* STEP 3: Recipes Section (Shown when recipe recommendation generated) */}
+            {recipesData && !isLoading && (
+              <div className="space-y-8 animate-fadeIn">
+                <RecipeDisplay
+                  urgentRecipe={recipesData.urgentRecipe}
+                  alternativeRecipe={recipesData.alternativeRecipe}
+                  expansionRecipes={recipesData.expansionRecipes}
+                  onStartCooking={(recipe) => setActiveCookingRecipe(recipe)}
+                  onAddShoppingItem={handleAddShoppingItem}
+                  favoriteRecipeTitles={favoriteRecipeTitles}
+                  onToggleFavorite={handleToggleFavoriteRecipe}
+                />
+              </div>
+            )}
+
+            {/* Smart Storage Tips */}
+            <ChefTipsBanner />
           </div>
         )}
 
-        {/* STEP 2: Ingredients Dashboard with Inventory Management */}
-        <IngredientsDashboard
-          ingredients={firestoreIngredients}
-          onAddIngredient={handleAddIngredient}
-          onUpdateIngredient={handleUpdateIngredient}
-          onDeleteIngredient={handleDeleteIngredient}
-          onTriggerRecipeGeneration={handleTriggerRecipeFromRegisteredIngredients}
-          isGeneratingRecipes={isGeneratingRecipes}
-          onAddShoppingItem={handleAddShoppingItem}
-        />
-
-        {/* STEP 3: Recipes Section (Shown when recipe recommendation generated) */}
-        {recipesData && !isLoading && (
-          <div className="space-y-8 animate-fadeIn">
-            <RecipeDisplay
-              urgentRecipe={recipesData.urgentRecipe}
-              alternativeRecipe={recipesData.alternativeRecipe}
-              expansionRecipes={recipesData.expansionRecipes}
+        {/* TAB 2: FAVORITE RECIPES (SEPARATE DEDICATED PAGE / TAB) */}
+        {activeNavTab === 'favorites' && (
+          <div className="animate-fadeIn">
+            <FavoriteRecipesSection
+              favorites={favoriteRecipes}
+              onDeleteFavorite={handleDeleteFavoriteRecipe}
               onStartCooking={(recipe) => setActiveCookingRecipe(recipe)}
               onAddShoppingItem={handleAddShoppingItem}
-              favoriteRecipeTitles={favoriteRecipeTitles}
-              onToggleFavorite={handleToggleFavoriteRecipe}
+              onOpenDetail={(recipe) => setDetailModalRecipe(recipe)}
+              onNavigateToFridge={() => setActiveNavTab('fridge')}
             />
           </div>
         )}
 
-        {/* STEP 4: Favorite Recipes Section (Firebase Persistent) */}
-        <FavoriteRecipesSection
-          favorites={favoriteRecipes}
-          onDeleteFavorite={handleDeleteFavoriteRecipe}
-          onStartCooking={(recipe) => setActiveCookingRecipe(recipe)}
-          onAddShoppingItem={handleAddShoppingItem}
-        />
-
-        {/* STEP 5: General Shopping Cart (Always accessible for custom registration, Coupang search, and fridge transfer) */}
-        <ShoppingListSection
-          items={shoppingList}
-          onToggleItem={handleToggleShoppingItem}
-          onDeleteItem={handleDeleteShoppingItem}
-          onAddItem={handleAddShoppingItem}
-          onRegisterToFridge={handleOpenFridgeRegisterFromCart}
-        />
-
-        {/* Smart Storage Tips */}
-        <ChefTipsBanner />
+        {/* TAB 3: GENERAL SHOPPING CART (SEPARATE DEDICATED PAGE / TAB) */}
+        {activeNavTab === 'cart' && (
+          <div className="animate-fadeIn">
+            <ShoppingListSection
+              items={shoppingList}
+              onToggleItem={handleToggleShoppingItem}
+              onDeleteItem={handleDeleteShoppingItem}
+              onAddItem={handleAddShoppingItem}
+              onRegisterToFridge={handleOpenFridgeRegisterFromCart}
+            />
+          </div>
+        )}
       </main>
 
       {/* Review Modal for AI Detected Items Before Firestore Save */}
@@ -483,6 +582,20 @@ export default function App() {
         isSaving={isSavingCartFridge}
       />
 
+      {/* Favorite Recipe Detail Modal (Allows viewing steps & putting ingredients into cart) */}
+      <FavoriteRecipeDetailModal
+        recipe={detailModalRecipe}
+        isOpen={!!detailModalRecipe}
+        onClose={() => setDetailModalRecipe(null)}
+        onStartCooking={(recipe) => {
+          setDetailModalRecipe(null);
+          setActiveCookingRecipe(recipe);
+        }}
+        onAddShoppingItem={handleAddShoppingItem}
+        onDeleteFavorite={handleDeleteFavoriteRecipe}
+        onNavigateToCart={() => setActiveNavTab('cart')}
+      />
+
       {/* Simple Auth Modal (ID / Password / Nickname) */}
       <AuthModal
         isOpen={isAuthModalOpen}
@@ -498,12 +611,12 @@ export default function App() {
         />
       )}
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 mt-12 py-6 text-center text-xs text-slate-500">
+      {/* Footer: Subtle and discreet */}
+      <footer className="bg-white border-t border-slate-200 mt-12 py-5 text-center text-xs text-slate-400">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>냉장고를 부탁해 • 스마트 주방 AI 어시스턴트 엔진</span>
-          <span className="text-orange-600 font-semibold">
-            Firebase Firestore 실시간 데이터베이스 연동 중
+          <span className="text-[11px] text-slate-400 font-normal">
+            Firebase Firestore 클라우드 연동됨
           </span>
         </div>
       </footer>

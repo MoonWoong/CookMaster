@@ -36,7 +36,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -52,37 +52,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
     setLoading(true);
 
-    if (mode === 'signup') {
-      if (!nickname.trim()) {
-        setErrorMsg('닉네임을 입력해주세요.');
-        setLoading(false);
-        return;
-      }
+    try {
+      if (mode === 'signup') {
+        if (!nickname.trim()) {
+          setErrorMsg('닉네임을 입력해주세요.');
+          setLoading(false);
+          return;
+        }
 
-      const res = registerSimpleUser(username, password, nickname);
-      if (res.success && res.user) {
-        setSuccessMsg(`환영합니다, ${res.user.nickname}님! 회원가입 및 로그인이 완료되었습니다.`);
-        onAuthSuccess(res.user);
-        setTimeout(() => {
-          onClose();
-        }, 800);
+        const res = await registerSimpleUser(username, password, nickname);
+        if (res.success && res.user) {
+          setSuccessMsg(`환영합니다, ${res.user.nickname}님! 회원가입 및 로그인이 완료되었습니다.`);
+          onAuthSuccess(res.user);
+          setTimeout(() => {
+            onClose();
+          }, 800);
+        } else {
+          setErrorMsg(res.error || '회원가입에 실패했습니다.');
+        }
       } else {
-        setErrorMsg(res.error || '회원가입에 실패했습니다.');
+        const res = await loginSimpleUser(username, password);
+        if (res.success && res.user) {
+          setSuccessMsg(`반갑습니다, ${res.user.nickname}님! 로그인되었습니다.`);
+          onAuthSuccess(res.user);
+          setTimeout(() => {
+            onClose();
+          }, 800);
+        } else {
+          setErrorMsg(res.error || '로그인에 실패했습니다.');
+        }
       }
-    } else {
-      const res = loginSimpleUser(username, password);
-      if (res.success && res.user) {
-        setSuccessMsg(`반갑습니다, ${res.user.nickname}님! 로그인되었습니다.`);
-        onAuthSuccess(res.user);
-        setTimeout(() => {
-          onClose();
-        }, 800);
-      } else {
-        setErrorMsg(res.error || '로그인에 실패했습니다.');
-      }
+    } catch (err: any) {
+      setErrorMsg('계정 처리 중 오류가 발생했습니다. 다시 시도해주세요.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   const handleGoogleLogin = async () => {

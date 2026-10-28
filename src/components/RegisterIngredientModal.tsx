@@ -179,7 +179,7 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
               className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
-              <span>{isSaving ? 'Firebase 저장 중...' : '냉장고에 등록 (Firebase 저장)'}</span>
+              <span>{isSaving ? '보관함에 저장 중...' : '냉장고에 등록하기'}</span>
             </button>
             <button
               type="button"

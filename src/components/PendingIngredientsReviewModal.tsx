@@ -235,7 +235,7 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
         {/* Modal Footer Actions */}
         <div className="p-5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="text-xs text-slate-500 font-medium">
-            확인 버튼을 누르면 위 {items.length}개 식재료가 Firebase에 즉시 등록됩니다.
+            확인 버튼을 누르면 위 {items.length}개 식재료가 내 냉장고 보관함에 즉시 등록됩니다.
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -254,7 +254,7 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
               className="flex-1 sm:flex-initial px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-md transition-all hover:scale-[1.01] cursor-pointer flex items-center justify-center gap-2"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>{isSaving ? 'Firebase에 등록 중...' : '내 냉장고에 등록하기'}</span>
+              <span>{isSaving ? '등록 처리 중...' : '내 냉장고에 등록하기'}</span>
             </button>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChefHat, Sparkles, Calendar, Database, LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { ChefHat, Sparkles, Calendar, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { PRESET_SCENARIOS, PresetScenario } from '../data/presets';
 
 interface HeaderProps {
@@ -45,14 +45,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Firebase Status & Auth & Date */}
+          {/* Auth & Date */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Firebase Live Indicator */}
-            <div className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-xl bg-orange-50 text-orange-700 border border-orange-200/80">
-              <Database className="w-3.5 h-3.5 text-orange-600" />
-              <span>Firebase 연동</span>
-            </div>
-
             <div className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200/80">
               <Calendar className="w-3.5 h-3.5 text-emerald-600" />
               <span>2026. 10. 26</span>

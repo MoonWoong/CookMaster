@@ -133,9 +133,6 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200/60">
               내 냉장고 현황판
             </span>
-            <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md font-bold border border-orange-200/70">
-              🔥 Firebase 실시간 연동
-            </span>
             <span className="text-xs text-slate-400 font-medium">총 {ingredients.length}개 품목</span>
           </div>
           <h3 className="text-lg sm:text-xl font-bold text-slate-900 mt-1">
@@ -250,8 +247,8 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
           <p className="text-xs text-slate-500 max-w-md mx-auto mb-2 leading-relaxed">
             상단 양식에서 식재료(품목, 유통기한, 수량)를 직접 입력하거나 사진/영수증을 스캔하여 등록해보세요.
           </p>
-          <span className="text-[11px] text-orange-600 font-bold bg-orange-50 px-2.5 py-1 rounded-md inline-block">
-            등록된 재료는 Firebase에 저장되어 재고 차감 및 유통기한 추적이 가능합니다.
+          <span className="text-[11px] text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-md inline-block border border-emerald-200/60">
+            등록된 재료는 실시간 보관함에 안전하게 저장되어 재고 차감 및 유통기한 추적이 가능합니다.
           </span>
         </div>
       ) : (

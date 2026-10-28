@@ -72,5 +72,21 @@ service cloud.firestore {
         && isOwner(existing().userId);
       allow delete: if isValidId(recipeId) && isOwner(existing().userId);
     }
+
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['id', 'passwordHash', 'nickname'])
+        && data.keys().hasOnly(['id', 'passwordHash', 'nickname', 'createdAt'])
+        && data.id is string && data.id.size() <= 100
+        && data.passwordHash is string && data.passwordHash.size() <= 200
+        && data.nickname is string && data.nickname.size() <= 50;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if false;
+      allow create: if isValidId(userId) && isValidUserAccount(incoming());
+      allow update: if isValidId(userId) && isValidUserAccount(incoming());
+      allow delete: if isValidId(userId);
+    }
   }
 }

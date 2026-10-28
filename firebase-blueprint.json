@@ -124,6 +124,34 @@
         }
       },
       "required": ["id", "userId", "title", "ingredients", "steps"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "User account credentials and profile for cross-device synchronization",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Account login ID"
+        },
+        "passwordHash": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Password hash or token"
+        },
+        "nickname": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "User display nickname"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Account creation timestamp"
+        }
+      },
+      "required": ["id", "passwordHash", "nickname"]
     }
   },
   "firestore": {
@@ -138,6 +166,12 @@
         "$ref": "#/entities/FavoriteRecipe"
       },
       "description": "Collection of favorite recipes saved by users"
+    },
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserAccount"
+      },
+      "description": "Collection of user accounts for cross-device login"
     }
   }
 }

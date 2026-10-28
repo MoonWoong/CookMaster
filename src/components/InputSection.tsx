@@ -266,7 +266,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
                 className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer disabled:opacity-50 inline-flex items-center justify-center gap-2"
               >
                 <Plus className="w-4 h-4" />
-                <span>{isSubmittingForm ? 'Firebase 등록 중...' : '내 냉장고에 등록 (Firebase 저장)'}</span>
+                <span>{isSubmittingForm ? '냉장고에 등록 중...' : '내 냉장고에 등록하기'}</span>
               </button>
             </div>
           </form>
