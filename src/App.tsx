@@ -17,6 +17,7 @@ import {
   ParsedIngredient,
   ShoppingListItem,
   FavoriteRecipe,
+  ItemType,
 } from './types/fridge';
 import { PRESET_SCENARIOS, PresetScenario } from './data/presets';
 import { normalizeFridgeResponse, calculateDDay, extractQuantityFromName } from './utils/recipeLogic';
@@ -37,6 +38,10 @@ import {
   subscribeToFavoriteRecipes,
   addFavoriteRecipeToFirestore,
   deleteFavoriteRecipeFromFirestore,
+  subscribeToCartItems,
+  addCartItemToFirestore,
+  updateCartItemInFirestore,
+  deleteCartItemFromFirestore,
 } from './lib/ingredientsService';
 import { ChefHat, Refrigerator, Star, ShoppingCart } from 'lucide-react';
 
@@ -79,24 +84,37 @@ export default function App() {
     ingredients: string[];
   } | null>(null);
 
-  // Cart local persistence per user
+  // Cart real-time Firestore synchronization & cross-device persistence
   useEffect(() => {
+    // One-time migration of any legacy localStorage cart items to Firestore
     try {
       const stored = localStorage.getItem(`fridge_cart_${currentUserId}`);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setShoppingList(parsed);
+          parsed.forEach(async (it: any) => {
+            if (it && it.item) {
+              await addCartItemToFirestore(it.item, it.reason || '장바구니 항목', currentUserId);
+            }
+          });
+          localStorage.removeItem(`fridge_cart_${currentUserId}`);
         }
       }
     } catch (_) {}
-  }, [currentUserId]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(`fridge_cart_${currentUserId}`, JSON.stringify(shoppingList));
-    } catch (_) {}
-  }, [shoppingList, currentUserId]);
+    // Real-time subscription to user's cart in Firestore
+    const unsubscribe = subscribeToCartItems(
+      currentUserId,
+      (items) => {
+        setShoppingList(items);
+      },
+      (err) => {
+        console.warn('Cart items subscription notice:', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUserId]);
 
   // 1. Auth & Connection initialization
   useEffect(() => {
@@ -241,19 +259,39 @@ export default function App() {
     }
   };
 
+  const [lastRecommendedMainIngredients, setLastRecommendedMainIngredients] = useState<string[] | null>(null);
+
   // Trigger recipe generation from already registered Firestore ingredients
-  const handleTriggerRecipeFromRegisteredIngredients = async () => {
+  const handleTriggerRecipeFromRegisteredIngredients = async (selectedMainIngredients?: string[]) => {
     if (firestoreIngredients.length === 0) return;
     setIsGeneratingRecipes(true);
+    setLastRecommendedMainIngredients(
+      selectedMainIngredients && selectedMainIngredients.length > 0 ? selectedMainIngredients : null
+    );
+
+    // Scroll smoothly to loading area so user gets instant visual feedback
+    setTimeout(() => {
+      document.getElementById('recipe-generating-loading')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+
     try {
       const ingredientText = firestoreIngredients
-        .map((i) => `${i.name} ${i.quantity || '1개'} (유통기한: ${i.expiryDate}, 상태: ${i.status})`)
+        .map(
+          (i) =>
+            `${i.name} (${i.itemType === 'side_dish' ? '반찬' : '식재료'}, ${i.quantity || '1개'}, 유통기한: ${i.expiryDate})`
+        )
         .join(', ');
 
       const response = await fetch('/api/analyze-fridge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ingredientText }),
+        body: JSON.stringify({
+          text: ingredientText,
+          mainIngredients:
+            selectedMainIngredients && selectedMainIngredients.length > 0
+              ? selectedMainIngredients
+              : undefined,
+        }),
       });
 
       if (response.ok) {
@@ -261,7 +299,14 @@ export default function App() {
         if (resJson.success && resJson.data) {
           const normalized = normalizeFridgeResponse(resJson.data);
           setRecipesData(normalized.recipes);
-          setShoppingList(normalized.shoppingList);
+
+          // Scroll directly down to recipe results
+          setTimeout(() => {
+            const el = document.getElementById('recipes-section');
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 120);
         }
       }
     } catch (e) {
@@ -299,25 +344,31 @@ export default function App() {
     await deleteIngredientFromFirestore(id);
   };
 
-  // Shopping list handlers
-  const handleToggleShoppingItem = (id: string) => {
-    setShoppingList((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, checked: !item.checked } : item))
-    );
+  // Shopping list handlers (Persisted in Firestore across devices)
+  const handleToggleShoppingItem = async (id: string) => {
+    const target = shoppingList.find((i) => i.id === id);
+    if (!target) return;
+    try {
+      await updateCartItemInFirestore(id, { checked: !target.checked });
+    } catch (e) {
+      console.error('Failed to update cart item in Firestore:', e);
+    }
   };
 
-  const handleDeleteShoppingItem = (id: string) => {
-    setShoppingList((prev) => prev.filter((item) => item.id !== id));
+  const handleDeleteShoppingItem = async (id: string) => {
+    try {
+      await deleteCartItemFromFirestore(id);
+    } catch (e) {
+      console.error('Failed to delete cart item from Firestore:', e);
+    }
   };
 
-  const handleAddShoppingItem = (item: string, reason: string) => {
-    const newItem: ShoppingListItem = {
-      id: `shop-user-${Date.now()}`,
-      item,
-      reason,
-      checked: false,
-    };
-    setShoppingList((prev) => [newItem, ...prev]);
+  const handleAddShoppingItem = async (item: string, reason: string) => {
+    try {
+      await addCartItemToFirestore(item, reason, currentUserId);
+    } catch (e) {
+      console.error('Failed to add cart item to Firestore:', e);
+    }
   };
 
   // Open fridge registration popup for cart item
@@ -330,6 +381,7 @@ export default function App() {
     name: string;
     expiryDate: string;
     quantity: string;
+    itemType?: ItemType;
   }) => {
     setIsSavingCartFridge(true);
     try {
@@ -340,13 +392,14 @@ export default function App() {
           expiryDate: data.expiryDate,
           quantity: data.quantity,
           status: dday.status,
+          itemType: data.itemType || 'ingredient',
         },
         currentUserId
       );
 
       // Remove from cart once successfully registered into fridge
       if (cartRegisterTarget) {
-        setShoppingList((prev) => prev.filter((i) => i.id !== cartRegisterTarget.id));
+        await deleteCartItemFromFirestore(cartRegisterTarget.id);
         setCartRegisterTarget(null);
       }
     } catch (e) {
@@ -530,9 +583,29 @@ export default function App() {
               onAddShoppingItem={handleAddShoppingItem}
             />
 
+            {/* Recipe Generation Loading Banner */}
+            {isGeneratingRecipes && (
+              <div
+                id="recipe-generating-loading"
+                className="bg-gradient-to-r from-emerald-500/10 via-amber-500/10 to-emerald-500/10 border-2 border-emerald-400/40 rounded-3xl p-8 text-center shadow-lg animate-pulse"
+              >
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-md">
+                  <ChefHat className="w-8 h-8 animate-bounce" />
+                </div>
+                <h3 className="text-xl font-black text-slate-900 mb-2">
+                  {lastRecommendedMainIngredients && lastRecommendedMainIngredients.length > 0
+                    ? `'${lastRecommendedMainIngredients.join(', ')}' 메인 맞춤 요리 레시피를 만드는 중...`
+                    : '보유 중인 재고 기반 특급 맞춤 레시피를 개발하고 있습니다...'}
+                </h3>
+                <p className="text-sm text-slate-600 max-w-md mx-auto">
+                  재료 조합과 유통기한 우선순위를 반영하여 셰프급 레시피와 필요 추가 재료 목록을 즉시 준비합니다.
+                </p>
+              </div>
+            )}
+
             {/* STEP 3: Recipes Section (Shown when recipe recommendation generated) */}
             {recipesData && !isLoading && (
-              <div className="space-y-8 animate-fadeIn">
+              <div id="recipes-section" className="space-y-8 animate-fadeIn scroll-mt-6">
                 <RecipeDisplay
                   urgentRecipe={recipesData.urgentRecipe}
                   alternativeRecipe={recipesData.alternativeRecipe}

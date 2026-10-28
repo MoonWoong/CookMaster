@@ -83,9 +83,81 @@ const CHEF_SYSTEM_INSTRUCTION = `당신은 버려지는 식재료 없이 최고�
 }`;
 
 // Smart fallback generator if GEMINI_API_KEY is absent or request times out
-function generateSmartChefFallback(textPrompt?: string, extraContext?: string) {
+function generateSmartChefFallback(textPrompt?: string, extraContext?: string, mainIngredients?: string[]) {
   const combined = [textPrompt, extraContext].filter(Boolean).join(' ');
   const text = combined.toLowerCase();
+
+  const primary = (Array.isArray(mainIngredients) && mainIngredients.length > 0)
+    ? mainIngredients[0]
+    : null;
+
+  // If user designated a main ingredient, prioritize creating custom recipes centered on it!
+  if (primary) {
+    return {
+      parsedIngredients: [
+        { name: primary, expiryDate: '2026-10-31', status: 'fresh' },
+        { name: '대파 1대', expiryDate: '2026-10-30', status: 'fresh' },
+        { name: '양파 1개', expiryDate: '2026-11-03', status: 'fresh' },
+        { name: '다진 마늘', expiryDate: '2026-11-15', status: 'fresh' },
+      ],
+      recipes: {
+        urgentRecipe: {
+          title: `[메인 맞춤] 셰프 특제 ${primary} 감칠맛 조림 & 볶음`,
+          usedExpiringIngredients: [primary],
+          ingredients: [
+            `${primary} 1~2인분 (먹기 좋게 손질)`,
+            '대파 1/2대 (송송 썰기)',
+            '양파 1/2개 (채썰기)',
+            '다진 마늘 1스푼, 진간장 1.5스푼, 올리고당 1스푼, 참기름 1스푼, 통깨 약간',
+          ],
+          steps: [
+            `달군 팬에 식용유 1스푼을 두르고 대파와 다진 마늘을 중약불에서 1분간 볶아 향긋한 파기름을 만듭니다.`,
+            `손질한 ${primary}을(를) 넣고 센 불에서 2~3분간 노릇하게 볶아 본연의 풍미를 끌어올립니다.`,
+            `진간장 1.5스푼과 올리고당 1스푼, 채 썬 양파를 넣고 양념이 쏙 배어들도록 2분간 자작하게 졸여냅니다.`,
+            `불을 끄고 참기름과 통깨를 둘러 밥반찬이나 메인 요리로 맛있게 담아냅니다.`,
+          ],
+        },
+        alternativeRecipe: {
+          title: `[초간단 별미] 든든한 ${primary} 덮밥 & 따뜻한 한 끼`,
+          ingredients: [
+            `${primary} 1인분`,
+            '따뜻한 밥 1공기',
+            '계란 1알 (프라이 또는 부드러운 스크램블)',
+            '굴소스 0.5스푼, 진간장 1스푼, 김가루',
+          ],
+          steps: [
+            `팬에 ${primary}을(를) 먹기 좋은 크기로 노릇하게 굽고 굴소스와 간장으로 가볍게 코팅하듯 볶습니다.`,
+            `따뜻한 밥 1공기를 넓은 그릇에 담고 맛있게 볶아낸 ${primary}을(를) 푸짐하게 얹습니다.`,
+            `계란과 김가루, 참기름을 톡 떨어뜨려 쓱쓱 비벼 먹으면 남녀노소 좋아하는 든든한 덮밥이 완성됩니다.`,
+          ],
+        },
+        expansionRecipes: [
+          {
+            title: `바삭 고소한 ${primary} 전 & 부침`,
+            currentIngredientsUsed: [primary, '대파'],
+            missingIngredientsToBuy: ['부침가루 500g', '홍고추 1팩'],
+            briefSteps: `${primary}을(를) 잘게 썰어 부침가루 반죽에 섞은 뒤 앞뒤로 노릇노릇 바삭하게 지져냅니다.`,
+          },
+          {
+            title: `얼큰 시원한 ${primary} 뚝배기 전골`,
+            currentIngredientsUsed: [primary],
+            missingIngredientsToBuy: ['느타리버섯 1팩', '알배기배추 1통'],
+            briefSteps: `칼칼한 멸치 다시마 육수에 ${primary}와 채소를 푸짐하게 넣어 7분간 보글보글 끓여냅니다.`,
+          },
+        ],
+      },
+      shoppingList: [
+        {
+          item: `신선한 ${primary} 추가 보충팩`,
+          reason: `메인 요리 [${primary}] 추가 조리 및 냉장고 비축용`,
+        },
+        {
+          item: '곰곰 바삭한 부침가루 500g',
+          reason: `확장 레시피: 바삭 ${primary} 전 필수 재료`,
+        },
+      ],
+    };
+  }
 
   let hasTofu = text.includes('두부');
   let hasKimchi = text.includes('김치');
@@ -358,15 +430,18 @@ function parseImagePayload(imageBase64?: string, mimeType?: string): {
 // API: Analyze Fridge (Text or Image)
 app.post('/api/analyze-fridge', async (req: Request, res: Response) => {
   try {
-    const { text, imageBase64, mimeType } = req.body;
+    const { text, imageBase64, mimeType, mainIngredients } = req.body;
 
     const parsedImage = parseImagePayload(imageBase64, mimeType);
     const combinedContext = [text, parsedImage.extractedText].filter(Boolean).join('\n');
+    const mainDirective = (Array.isArray(mainIngredients) && mainIngredients.length > 0)
+      ? `\n[★ 중요: 사용자가 지정한 메인 식재료: ${mainIngredients.join(', ')}]\n반드시 지정된 메인 식재료(${mainIngredients.join(', ')})를 주인공으로 삼아 맛있는 요리 레시피를 제안하세요.`
+      : '';
 
     const ai = getAIClient();
     if (!ai) {
       console.warn('GEMINI_API_KEY not found. Using intelligent chef fallback.');
-      const fallback = generateSmartChefFallback(text, parsedImage.extractedText);
+      const fallback = generateSmartChefFallback(text, parsedImage.extractedText, mainIngredients);
       return res.json({ success: true, data: fallback });
     }
 
@@ -378,21 +453,21 @@ app.post('/api/analyze-fridge', async (req: Request, res: Response) => {
       });
       contents.push({
         text: `다음 냉장고 내부 또는 영수증 사진을 정밀 분석해주세요. 
-식재료 이름과 추정 유통기한/상태를 파악하고, 유통기한 임박 레시피, 남은 재료 대체 레시피, 확장 레시피 및 쿠팡 쇼핑 리스트를 도출하세요.
+식재료 이름과 추정 유통기한/상태를 파악하고, 유통기한 임박 레시피, 남은 재료 대체 레시피, 확장 레시피 및 쇼핑 리스트를 도출하세요.${mainDirective}
 사용자 추가 메모: ${combinedContext || '없음'}`,
       });
     } else {
       contents.push({
         text: `다음 냉장고 보관 식재료 텍스트 및 이미지 라벨 내용을 정밀 분석해주세요:
-"${combinedContext || '두부, 대파, 팽이버섯, 계란, 김치, 양파, 돼지고기'}"
+"${combinedContext || '두부, 대파, 팽이버섯, 계란, 김치, 양파, 돼지고기'}"${mainDirective}
 
-식재료 이름과 유통기한 상태를 파악하고, 3가지 핵심 레시피와 쿠팡 쇼핑 리스트를 도출하세요.`,
+식재료 이름과 유통기한 상태를 파악하고, 3가지 핵심 레시피와 쇼핑 리스트를 도출하세요.`,
       });
     }
 
-    // Wrap in Promise.race with a 4-second timeout to protect against network hang
+    // Wrap in Promise.race with a generous 18-second timeout to allow complete recipe generation
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Gemini API timeout - using smart chef engine')), 4000)
+      setTimeout(() => reject(new Error('Gemini API timeout - using smart chef engine')), 18000)
     );
 
     const geminiCall = ai.models.generateContent({
@@ -418,14 +493,18 @@ app.post('/api/analyze-fridge', async (req: Request, res: Response) => {
       parsed = JSON.parse(cleaned);
     } catch (parseErr) {
       console.error('Failed to parse model JSON:', parseErr, outputText);
-      parsed = generateSmartChefFallback(text, parsedImage.extractedText);
+      parsed = generateSmartChefFallback(text, parsedImage.extractedText, mainIngredients);
     }
 
     return res.json({ success: true, data: parsed });
   } catch (err: any) {
     console.warn('Handling request with smart chef engine fallback:', err?.message || err);
     const parsedImage = parseImagePayload(req.body?.imageBase64, req.body?.mimeType);
-    const fallback = generateSmartChefFallback(req.body?.text, parsedImage.extractedText);
+    const fallback = generateSmartChefFallback(
+      req.body?.text,
+      parsedImage.extractedText,
+      req.body?.mainIngredients
+    );
     return res.json({
       success: true,
       data: fallback,

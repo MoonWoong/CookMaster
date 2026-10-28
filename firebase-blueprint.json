@@ -24,6 +24,11 @@
           "enum": ["fresh", "warning", "expired"],
           "description": "Freshness status calculated or specified"
         },
+        "itemType": {
+          "type": "string",
+          "enum": ["ingredient", "side_dish"],
+          "description": "Classification whether item is a cooking ingredient (식재료) or a prepared side dish (반찬)"
+        },
         "category": {
           "type": "string",
           "maxLength": 50,
@@ -152,6 +157,43 @@
         }
       },
       "required": ["id", "passwordHash", "nickname"]
+    },
+    "CartItem": {
+      "title": "CartItem",
+      "description": "A shopping cart item synchronized across devices",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Unique identifier of the cart item"
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Owner user ID"
+        },
+        "item": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Item name to purchase"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Reason for purchase or recipe note"
+        },
+        "checked": {
+          "type": "boolean",
+          "description": "Check status"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["id", "userId", "item"]
     }
   },
   "firestore": {
@@ -172,6 +214,12 @@
         "$ref": "#/entities/UserAccount"
       },
       "description": "Collection of user accounts for cross-device login"
+    },
+    "/cart_items/{itemId}": {
+      "schema": {
+        "$ref": "#/entities/CartItem"
+      },
+      "description": "Collection of shopping cart items synchronized across devices"
     }
   }
 }

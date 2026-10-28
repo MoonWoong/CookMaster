@@ -16,7 +16,7 @@ import {
   ArrowRight,
   BookmarkCheck,
 } from 'lucide-react';
-import { InputMode, ParsedIngredient, IngredientStatus } from '../types/fridge';
+import { InputMode, ParsedIngredient, IngredientStatus, ItemType } from '../types/fridge';
 import { PRESET_SCENARIOS, PresetScenario } from '../data/presets';
 import { calculateDDay } from '../utils/recipeLogic';
 
@@ -31,16 +31,16 @@ interface InputSectionProps {
 }
 
 const COMMON_TAGS = [
-  { name: '두부', quantity: '1모', daysFromNow: 1, urgent: true },
-  { name: '팽이버섯', quantity: '1봉', daysFromNow: -1, urgent: true },
-  { name: '삼겹살', quantity: '300g', daysFromNow: 2, urgent: false },
-  { name: '대파', quantity: '1단', daysFromNow: 5, urgent: false },
-  { name: '양파', quantity: '2개', daysFromNow: 7, urgent: false },
-  { name: '달걀', quantity: '5알', daysFromNow: 10, urgent: false },
-  { name: '묵은지', quantity: '반포기', daysFromNow: 30, urgent: false },
-  { name: '스팸', quantity: '1캔', daysFromNow: 60, urgent: false },
-  { name: '우유', quantity: '500ml', daysFromNow: 2, urgent: true },
-  { name: '콩나물', quantity: '1봉지', daysFromNow: 2, urgent: true },
+  { name: '두부', quantity: '1모', daysFromNow: 1, urgent: true, itemType: 'ingredient' as ItemType },
+  { name: '팽이버섯', quantity: '1봉', daysFromNow: -1, urgent: true, itemType: 'ingredient' as ItemType },
+  { name: '삼겹살', quantity: '300g', daysFromNow: 2, urgent: false, itemType: 'ingredient' as ItemType },
+  { name: '대파', quantity: '1단', daysFromNow: 5, urgent: false, itemType: 'ingredient' as ItemType },
+  { name: '달걀', quantity: '5알', daysFromNow: 10, urgent: false, itemType: 'ingredient' as ItemType },
+  { name: '배추김치/묵은지', quantity: '반포기', daysFromNow: 30, urgent: false, itemType: 'side_dish' as ItemType },
+  { name: '멸치볶음', quantity: '1통', daysFromNow: 14, urgent: false, itemType: 'side_dish' as ItemType },
+  { name: '소고기 장조림', quantity: '1통', daysFromNow: 12, urgent: false, itemType: 'side_dish' as ItemType },
+  { name: '진미채볶음', quantity: '1통', daysFromNow: 20, urgent: false, itemType: 'side_dish' as ItemType },
+  { name: '콩나물', quantity: '1봉지', daysFromNow: 2, urgent: true, itemType: 'ingredient' as ItemType },
 ];
 
 export const InputSection: React.FC<InputSectionProps> = ({
@@ -62,6 +62,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
     return d.toISOString().slice(0, 10);
   });
   const [formQuantity, setFormQuantity] = useState('1개');
+  const [formItemType, setFormItemType] = useState<ItemType>('ingredient');
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
   const [formSuccessMessage, setFormSuccessMessage] = useState<string | null>(null);
 
@@ -107,10 +108,12 @@ export const InputSection: React.FC<InputSectionProps> = ({
         name: formName.trim(),
         expiryDate: formExpiry.trim() || '정보 없음',
         quantity: formQuantity.trim() || '1개',
+        itemType: formItemType,
         status: dday.status,
       });
 
-      setFormSuccessMessage(`'${formName.trim()}' (${formQuantity}) 등록 완료!`);
+      const typeLabel = formItemType === 'side_dish' ? '반찬' : '식재료';
+      setFormSuccessMessage(`'${formName.trim()}' (${typeLabel} · ${formQuantity}) 등록 완료!`);
       setFormName('');
       setTimeout(() => setFormSuccessMessage(null), 2500);
     } catch (e) {
@@ -123,6 +126,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
   const handleFillQuickTag = (tag: typeof COMMON_TAGS[0]) => {
     setFormName(tag.name);
     setFormQuantity(tag.quantity);
+    if (tag.itemType) setFormItemType(tag.itemType);
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() + tag.daysFromNow);
     setFormExpiry(targetDate.toISOString().slice(0, 10));
@@ -230,17 +234,46 @@ export const InputSection: React.FC<InputSectionProps> = ({
 
           {/* Direct Input Form */}
           <form onSubmit={handleDirectFormSubmit} className="space-y-4 pt-2">
+            {/* Category Type Selector: 식재료 vs 반찬 */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-700">품목 구분:</span>
+              <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setFormItemType('ingredient')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    formItemType === 'ingredient'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>🥬 요리 식재료</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormItemType('side_dish')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    formItemType === 'side_dish'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>🍱 보관 반찬</span>
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
               {/* Ingredient Name */}
               <div>
                 <label className="text-xs font-bold text-slate-700 mb-1.5 block">
-                  식재료 품목명 <span className="text-rose-500">*</span>
+                  {formItemType === 'side_dish' ? '반찬 품목명' : '식재료 품목명'} <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="예: 찌개용 두부, 대파, 삼겹살"
+                  placeholder={formItemType === 'side_dish' ? '예: 배추김치, 멸치볶음, 진미채' : '예: 찌개용 두부, 대파, 삼겹살'}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
                   required
                 />

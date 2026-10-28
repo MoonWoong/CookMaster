@@ -24,12 +24,13 @@ service cloud.firestore {
 
     function isValidIngredient(data) {
       return data.keys().hasAll(['id', 'name', 'expiryDate', 'status', 'userId'])
-        && data.keys().hasOnly(['id', 'name', 'expiryDate', 'status', 'category', 'quantity', 'imageUrl', 'userId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'expiryDate', 'status', 'itemType', 'category', 'quantity', 'imageUrl', 'userId', 'createdAt', 'updatedAt'])
         && data.id is string && data.id.size() <= 128
         && data.name is string && data.name.size() > 0 && data.name.size() <= 100
         && data.expiryDate is string && data.expiryDate.size() <= 30
         && data.status in ['fresh', 'warning', 'expired']
         && data.userId is string && data.userId.size() <= 128
+        && (!('itemType' in data) || (data.itemType in ['ingredient', 'side_dish']))
         && (!('category' in data) || (data.category is string && data.category.size() <= 50))
         && (!('quantity' in data) || (data.quantity is string && data.quantity.size() <= 50))
         && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 100000));
@@ -48,7 +49,7 @@ service cloud.firestore {
       allow update: if isValidId(ingredientId)
         && isValidIngredient(incoming())
         && isOwner(existing().userId)
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'expiryDate', 'status', 'category', 'quantity', 'imageUrl', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'expiryDate', 'status', 'itemType', 'category', 'quantity', 'imageUrl', 'updatedAt']);
       allow delete: if isValidId(ingredientId) && isOwner(existing().userId);
     }
 
@@ -87,6 +88,24 @@ service cloud.firestore {
       allow create: if isValidId(userId) && isValidUserAccount(incoming());
       allow update: if isValidId(userId) && isValidUserAccount(incoming());
       allow delete: if isValidId(userId);
+    }
+
+    function isValidCartItem(data) {
+      return data.keys().hasAll(['id', 'userId', 'item'])
+        && data.keys().hasOnly(['id', 'userId', 'item', 'reason', 'checked', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.item is string && data.item.size() <= 200
+        && (!('reason' in data) || (data.reason is string && data.reason.size() <= 200))
+        && (!('checked' in data) || data.checked is bool);
+    }
+
+    match /cart_items/{itemId} {
+      allow get: if isValidId(itemId) && isOwner(resource.data.userId);
+      allow list: if !isSignedIn() || resource.data.userId == request.auth.uid || resource.data.userId.matches('^(guest|user).*$');
+      allow create: if isValidId(itemId) && isValidCartItem(incoming()) && isOwner(incoming().userId);
+      allow update: if isValidId(itemId) && isValidCartItem(incoming()) && isOwner(existing().userId);
+      allow delete: if isValidId(itemId) && isOwner(existing().userId);
     }
   }
 }

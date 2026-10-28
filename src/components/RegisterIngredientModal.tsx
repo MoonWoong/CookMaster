@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Calendar, Package, Sparkles, CheckCircle2 } from 'lucide-react';
+import { ItemType } from '../types/fridge';
 import { calculateDDay } from '../utils/recipeLogic';
 
 interface RegisterIngredientModalProps {
@@ -8,7 +9,7 @@ interface RegisterIngredientModalProps {
   initialName?: string;
   initialQuantity?: string;
   sourceNote?: string;
-  onConfirm: (data: { name: string; expiryDate: string; quantity: string }) => Promise<void>;
+  onConfirm: (data: { name: string; expiryDate: string; quantity: string; itemType?: ItemType }) => Promise<void>;
   isSaving?: boolean;
 }
 
@@ -22,6 +23,7 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
   isSaving = false,
 }) => {
   const [name, setName] = useState('');
+  const [itemType, setItemType] = useState<ItemType>('ingredient');
   const [expiryDate, setExpiryDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
@@ -34,6 +36,8 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
     if (isOpen) {
       setName(initialName);
       setQuantity(initialQuantity || '1개');
+      const isLikelySideDish = /김치|볶음|조림|무침|장아찌|젓갈|나물/i.test(initialName);
+      setItemType(isLikelySideDish ? 'side_dish' : 'ingredient');
       const d = new Date();
       d.setDate(d.getDate() + 3);
       setExpiryDate(d.toISOString().slice(0, 10));
@@ -57,6 +61,7 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
         name: name.trim(),
         expiryDate: expiryDate || '정보 없음',
         quantity: quantity.trim() || '1개',
+        itemType,
       });
       onClose();
     } catch (err: any) {
@@ -107,16 +112,47 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
             </div>
           )}
 
+          {/* Item Type Selector */}
+          <div>
+            <label className="text-xs font-bold text-slate-700 block mb-1.5">
+              품목 구분
+            </label>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setItemType('ingredient')}
+                className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  itemType === 'ingredient'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>🥬 요리 식재료</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setItemType('side_dish')}
+                className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  itemType === 'side_dish'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>🍱 보관 반찬</span>
+              </button>
+            </div>
+          </div>
+
           {/* Item Name */}
           <div>
             <label className="text-xs font-bold text-slate-700 block mb-1.5">
-              품목명 <span className="text-rose-500">*</span>
+              {itemType === 'side_dish' ? '반찬 품목명' : '식재료 품목명'} <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="예: 찌개용 두부, 신선란, 삼겹살"
+              placeholder={itemType === 'side_dish' ? '예: 배추김치, 멸치볶음, 진미채' : '예: 찌개용 두부, 신선란, 삼겹살'}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-xs font-bold outline-none focus:border-emerald-500 focus:bg-white"
               required
               autoFocus

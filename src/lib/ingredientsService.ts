@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { handleFirestoreError, OperationType } from './firebaseErrors';
-import { ParsedIngredient, FavoriteRecipe } from '../types/fridge';
+import { ParsedIngredient, FavoriteRecipe, ShoppingListItem } from '../types/fridge';
 import { getRecognizableIcon, generateStylizedFoodSvg } from '../utils/ingredientIcons';
 
 const COLLECTION_NAME = 'ingredients';
@@ -74,6 +74,7 @@ export function subscribeToIngredients(
             name: data.name || '',
             expiryDate: data.expiryDate || '정보 없음',
             status: data.status || 'fresh',
+            itemType: data.itemType === 'side_dish' ? 'side_dish' : 'ingredient',
             category: data.category || '',
             quantity: data.quantity || '',
             imageUrl: data.imageUrl || undefined,
@@ -151,6 +152,7 @@ export async function addIngredientToFirestore(
       name: ingredient.name.trim(),
       expiryDate: ingredient.expiryDate.trim(),
       status: ingredient.status,
+      itemType: ingredient.itemType === 'side_dish' ? 'side_dish' : 'ingredient',
       userId: userId || 'guest',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -214,6 +216,7 @@ export async function batchAddIngredientsToFirestore(
         name: ing.name,
         expiryDate: ing.expiryDate,
         status: ing.status,
+        itemType: ing.itemType || 'ingredient',
         category: ing.category,
         quantity: ing.quantity,
         imageUrl: ing.imageUrl,
@@ -315,6 +318,114 @@ export async function deleteFavoriteRecipeFromFirestore(id: string): Promise<voi
   const path = `${FAVORITES_COLLECTION_NAME}/${id}`;
   try {
     await deleteDoc(doc(db, FAVORITES_COLLECTION_NAME, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+    throw error;
+  }
+}
+
+const CART_COLLECTION_NAME = 'cart_items';
+
+/**
+ * Subscribes to real-time updates for shopping cart items from Firestore
+ */
+export function subscribeToCartItems(
+  userId: string,
+  onData: (items: ShoppingListItem[]) => void,
+  onError?: (err: any) => void
+): () => void {
+  const colRef = collection(db, CART_COLLECTION_NAME);
+
+  const unsubscribe = onSnapshot(
+    colRef,
+    (snapshot) => {
+      const items: ShoppingListItem[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.userId === userId || data.userId === 'guest' || !data.userId) {
+          items.push({
+            id: docSnap.id,
+            userId: data.userId || userId,
+            item: data.item || '',
+            reason: data.reason || '',
+            checked: !!data.checked,
+            createdAt: data.createdAt || undefined,
+          });
+        }
+      });
+      // Sort newest first
+      items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      onData(items);
+    },
+    (error) => {
+      if (typeof onError === 'function') {
+        onError(error);
+      }
+      handleFirestoreError(error, OperationType.GET, CART_COLLECTION_NAME);
+    }
+  );
+
+  return unsubscribe;
+}
+
+/**
+ * Adds a shopping cart item to Firestore
+ */
+export async function addCartItemToFirestore(
+  item: string,
+  reason: string,
+  userId: string
+): Promise<string> {
+  const cleanId = `cart_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const path = `${CART_COLLECTION_NAME}/${cleanId}`;
+
+  try {
+    const docData = {
+      id: cleanId,
+      userId,
+      item: item.trim(),
+      reason: reason.trim() || '쇼핑 목록',
+      checked: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    await setDoc(doc(db, CART_COLLECTION_NAME, cleanId), docData);
+    return cleanId;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
+  }
+}
+
+/**
+ * Updates a shopping cart item in Firestore (e.g. toggle checked)
+ */
+export async function updateCartItemInFirestore(
+  id: string,
+  updates: Partial<ShoppingListItem>
+): Promise<void> {
+  const path = `${CART_COLLECTION_NAME}/${id}`;
+  try {
+    const docRef = doc(db, CART_COLLECTION_NAME, id);
+    const cleanUpdates: Record<string, any> = {};
+    if (typeof updates.checked === 'boolean') cleanUpdates.checked = updates.checked;
+    if (typeof updates.item === 'string') cleanUpdates.item = updates.item;
+    if (typeof updates.reason === 'string') cleanUpdates.reason = updates.reason;
+
+    await updateDoc(docRef, cleanUpdates);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
+  }
+}
+
+/**
+ * Deletes a shopping cart item from Firestore
+ */
+export async function deleteCartItemFromFirestore(id: string): Promise<void> {
+  const path = `${CART_COLLECTION_NAME}/${id}`;
+  try {
+    await deleteDoc(doc(db, CART_COLLECTION_NAME, id));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
     throw error;

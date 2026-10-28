@@ -59,6 +59,7 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
       name: '',
       expiryDate: '2026-10-30',
       quantity: '1개',
+      itemType: 'ingredient',
       status: 'fresh',
     };
     setItems((prev) => [...prev, newItem]);
@@ -71,6 +72,7 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
       .map((i) => ({
         ...i,
         name: i.name.trim(),
+        itemType: (i.itemType || (/김치|볶음|조림|무침|장아찌|젓갈|나물/i.test(i.name) ? 'side_dish' : 'ingredient')) as any,
         status: calculateDDay(i.expiryDate).status,
       }));
 
@@ -141,10 +143,30 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
               key={item.id || idx}
               className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 hover:bg-white hover:border-emerald-300 transition-all flex flex-col sm:flex-row items-start sm:items-center gap-3"
             >
-              {/* Index number */}
-              <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-xs font-black flex items-center justify-center shrink-0">
-                {idx + 1}
-              </span>
+              {/* Index number and Item Type Toggle */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-xs font-black flex items-center justify-center shrink-0">
+                  {idx + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleUpdateItem(
+                      idx,
+                      'itemType',
+                      (item.itemType === 'side_dish' ? 'ingredient' : 'side_dish') as any
+                    )
+                  }
+                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                    item.itemType === 'side_dish'
+                      ? 'bg-amber-100 text-amber-900 border-amber-300'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  }`}
+                  title="클릭하여 식재료/반찬 구분 전환"
+                >
+                  {item.itemType === 'side_dish' ? '🍱 반찬' : '🥬 식재료'}
+                </button>
+              </div>
 
               {/* Name */}
               <div className="flex-1 w-full sm:w-auto">
@@ -155,7 +177,7 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
                   type="text"
                   value={item.name}
                   onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
-                  placeholder="품목명 (예: 계란, 찌개두부)"
+                  placeholder="품목명 (예: 계란, 찌개두부, 멸치볶음)"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-emerald-500"
                   required
                 />

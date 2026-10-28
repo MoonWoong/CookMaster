@@ -14,6 +14,9 @@ import {
   MinusCircle,
   Scissors,
   ShoppingCart,
+  Star,
+  UtensilsCrossed,
+  X,
 } from 'lucide-react';
 import { IngredientStatus, ParsedIngredient } from '../types/fridge';
 import { calculateDDay, calculateRemainingQuantity } from '../utils/recipeLogic';
@@ -26,7 +29,7 @@ interface IngredientsDashboardProps {
   onAddIngredient: (item: Omit<ParsedIngredient, 'id'>) => Promise<void>;
   onUpdateIngredient: (id: string, updates: Partial<ParsedIngredient>) => Promise<void>;
   onDeleteIngredient: (id: string) => Promise<void>;
-  onTriggerRecipeGeneration: () => void;
+  onTriggerRecipeGeneration: (selectedMainIngredients?: string[]) => void;
   isGeneratingRecipes?: boolean;
   onAddShoppingItem: (item: string, reason: string) => void;
 }
@@ -40,27 +43,32 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
   isGeneratingRecipes,
   onAddShoppingItem,
 }) => {
-  const [filter, setFilter] = useState<'all' | 'urgent' | 'fresh'>('all');
+  const [filter, setFilter] = useState<'all' | 'ingredients' | 'side_dishes' | 'urgent'>('all');
   const [generatingImageId, setGeneratingImageId] = useState<string | null>(null);
   const [usageTargetItem, setUsageTargetItem] = useState<ParsedIngredient | null>(null);
+  const [selectedMainIngredients, setSelectedMainIngredients] = useState<string[]>([]);
 
-  // Dynamically evaluate freshness status for each ingredient based on remaining expiry date
+  // Dynamically evaluate freshness status and item type for each ingredient
   const ingredientsWithEvaluatedStatus = ingredients.map((item) => {
     const dday = calculateDDay(item.expiryDate);
     return {
       ...item,
+      itemType: item.itemType || 'ingredient',
       evaluatedStatus: dday.status,
       dday,
     };
   });
 
+  const rawIngredientsCount = ingredientsWithEvaluatedStatus.filter((i) => i.itemType !== 'side_dish').length;
+  const sideDishCount = ingredientsWithEvaluatedStatus.filter((i) => i.itemType === 'side_dish').length;
   const expiredCount = ingredientsWithEvaluatedStatus.filter((i) => i.evaluatedStatus === 'expired').length;
   const warningCount = ingredientsWithEvaluatedStatus.filter((i) => i.evaluatedStatus === 'warning').length;
   const freshCount = ingredientsWithEvaluatedStatus.filter((i) => i.evaluatedStatus === 'fresh').length;
 
   const filteredIngredients = ingredientsWithEvaluatedStatus.filter((item) => {
+    if (filter === 'ingredients') return item.itemType !== 'side_dish';
+    if (filter === 'side_dishes') return item.itemType === 'side_dish';
     if (filter === 'urgent') return item.evaluatedStatus === 'expired' || item.evaluatedStatus === 'warning';
-    if (filter === 'fresh') return item.evaluatedStatus === 'fresh';
     return true;
   });
 
@@ -90,27 +98,31 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
   };
 
   const handleAddSingleToCart = (item: (typeof ingredientsWithEvaluatedStatus)[0]) => {
-    const isUrgent = item.evaluatedStatus === 'expired' || item.evaluatedStatus === 'warning';
-    const reason = isUrgent
-      ? `유통기한 임박(${item.expiryDate}) 보충 구매`
-      : '식재료 보충 구매';
+    const reason = item.itemType === 'side_dish' ? '반찬 재구매' : '식재료 보충 구매';
     onAddShoppingItem(item.name, reason);
-    showToast(`🛒 '${item.name}' 장바구니에 추가되었습니다!`);
-  };
-
-  const handleAddAllUrgentToCart = () => {
-    const urgentItems = ingredientsWithEvaluatedStatus.filter(
-      (i) => i.evaluatedStatus === 'expired' || i.evaluatedStatus === 'warning'
-    );
-    if (urgentItems.length === 0) return;
-    urgentItems.forEach((ing) => {
-      onAddShoppingItem(ing.name, `유통기한 임박/경과(${ing.expiryDate}) 즉시 대체 구매`);
-    });
-    showToast(`🛒 임박 식재료 ${urgentItems.length}개가 장바구니에 담겼습니다!`);
+    showToast(`🛒 '${item.name}' 장바구니에 담겼습니다!`);
   };
 
   const handleUpdateQuantity = async (id: string, newQuantity: string) => {
     await onUpdateIngredient(id, { quantity: newQuantity });
+  };
+
+  const handleToggleMainIngredient = (name: string) => {
+    setSelectedMainIngredients((prev) => {
+      if (prev.includes(name)) {
+        return prev.filter((n) => n !== name);
+      } else {
+        return [...prev, name];
+      }
+    });
+  };
+
+  const handleClearMainIngredients = () => {
+    setSelectedMainIngredients([]);
+  };
+
+  const handleRecommendRecipes = () => {
+    onTriggerRecipeGeneration(selectedMainIngredients.length > 0 ? selectedMainIngredients : undefined);
   };
 
   return (
@@ -133,46 +145,153 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200/60">
               내 냉장고 현황판
             </span>
-            <span className="text-xs text-slate-400 font-medium">총 {ingredients.length}개 품목</span>
+            <span className="text-xs text-slate-500 font-medium">
+              총 {ingredients.length}개 품목 (식재료 {rawIngredientsCount} · 반찬 {sideDishCount})
+            </span>
           </div>
           <h3 className="text-lg sm:text-xl font-bold text-slate-900 mt-1">
-            식재료 신선도 및 실시간 재고 관리
+            식재료 & 반찬 재고 관리 및 맞춤 요리
           </h3>
         </div>
 
         {/* Counter Pills */}
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200/80 text-xs font-bold">
+            <span>🥬 식재료: {rawIngredientsCount}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-200/80 text-xs font-bold">
+            <span>🍱 반찬: {sideDishCount}</span>
+          </div>
+
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-200/80 text-xs font-bold">
             <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
-            <span>기한 지남: {expiredCount}개</span>
+            <span>기한 지남: {expiredCount}</span>
           </div>
 
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200/80 text-xs font-bold">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-            <span>임박: {warningCount}개</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-xs font-bold">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            <span>신선: {freshCount}개</span>
+            <span>임박: {warningCount}</span>
           </div>
         </div>
       </div>
 
-      {/* Filter and Action Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        {/* Filter buttons */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/70 self-start">
+      {/* Main Ingredient (주재료) Selection Banner */}
+      {ingredients.length > 0 && (
+        <div
+          className={`mb-5 p-4 rounded-2xl border transition-all ${
+            selectedMainIngredients.length > 0
+              ? 'bg-amber-50/90 border-amber-300 shadow-2xs'
+              : 'bg-slate-50/80 border-slate-200'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <span
+                className={`p-2 rounded-xl shrink-0 ${
+                  selectedMainIngredients.length > 0
+                    ? 'bg-amber-500 text-white shadow-2xs'
+                    : 'bg-slate-200 text-slate-600'
+                }`}
+              >
+                <UtensilsCrossed className="w-4 h-4" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                    메인 식재료 지정 요리 추천
+                  </h4>
+                  {selectedMainIngredients.length > 0 ? (
+                    <span className="text-[11px] font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                      {selectedMainIngredients.length}개 재료 선택됨
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-medium text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
+                      원하는 재료의 [⭐ 메인] 버튼을 눌러보세요
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  활용하고 싶은 메인 식재료를 선택하시면, 해당 재료를 중심으로 한 맞춤 셰프 레시피를 우선 추천해 드립니다.
+                </p>
+              </div>
+            </div>
+
+            {/* If selected, show fast-recommend action button */}
+            {selectedMainIngredients.length > 0 && (
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                <button
+                  type="button"
+                  onClick={handleClearMainIngredients}
+                  className="px-2.5 py-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-800 hover:bg-white rounded-lg transition-all cursor-pointer"
+                >
+                  선택 초기화
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Selected Chips List */}
+          {selectedMainIngredients.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-amber-200/80 flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-bold text-amber-900 shrink-0">선택된 메인 재료:</span>
+              {selectedMainIngredients.map((name) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white border border-amber-300 text-amber-900 text-xs font-bold shadow-2xs"
+                >
+                  <span>⭐ {name}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleMainIngredient(name)}
+                    className="p-0.5 hover:bg-amber-100 rounded-full text-amber-700 cursor-pointer"
+                    title="선택 해제"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Filter and Prominent Action Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 p-2 bg-slate-50/80 rounded-2xl border border-slate-200/80">
+        {/* Category & Status Filter Tabs */}
+        <div className="flex items-center gap-1.5 p-1 bg-white rounded-xl border border-slate-200/70 flex-wrap">
           <button
             type="button"
             onClick={() => setFilter('all')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               filter === 'all'
-                ? 'bg-white text-slate-800 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             전체 ({ingredients.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter('ingredients')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              filter === 'ingredients'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-emerald-700 hover:text-emerald-900'
+            }`}
+          >
+            🥬 식재료 ({rawIngredientsCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter('side_dishes')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              filter === 'side_dishes'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'text-amber-800 hover:text-amber-950'
+            }`}
+          >
+            🍱 반찬 ({sideDishCount})
           </button>
           <button
             type="button"
@@ -183,56 +302,40 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
                 : 'text-rose-600 hover:text-rose-700'
             }`}
           >
-            🚨 위험·임박만 ({expiredCount + warningCount})
+            🚨 임박·위험 ({expiredCount + warningCount})
           </button>
+        </div>
+
+        {/* PROMINENT, EYE-CATCHING AI RECIPE RECOMMENDATION BUTTON */}
+        {ingredients.length > 0 && (
           <button
             type="button"
-            onClick={() => setFilter('fresh')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              filter === 'fresh'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-emerald-700 hover:text-emerald-800'
+            onClick={handleRecommendRecipes}
+            disabled={isGeneratingRecipes}
+            className={`w-full lg:w-auto px-6 py-3 rounded-2xl text-white font-extrabold text-sm sm:text-base transition-all shadow-md hover:shadow-xl cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2.5 active:scale-[0.98] ${
+              selectedMainIngredients.length > 0
+                ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-700 ring-2 ring-amber-300 ring-offset-2'
+                : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-700 ring-2 ring-emerald-300 ring-offset-2'
             }`}
           >
-            ✅ 신선 ({freshCount})
+            {isGeneratingRecipes ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>AI 셰프가 특급 맞춤 레시피 개발 중...</span>
+              </>
+            ) : selectedMainIngredients.length > 0 ? (
+              <>
+                <Sparkles className="w-5 h-5 text-yellow-200 animate-pulse" />
+                <span>'{selectedMainIngredients.join(', ')}' 메인 맞춤 요리 추천받기 ➔</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5 text-amber-200 animate-pulse" />
+                <span>✨ AI 맞춤 요리 레시피 추천받기 ➔</span>
+              </>
+            )}
           </button>
-        </div>
-
-        {/* Action: Batch Urgent Add to Cart & Recipe Generate */}
-        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-          {expiredCount + warningCount > 0 && (
-            <button
-              type="button"
-              onClick={handleAddAllUrgentToCart}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition-all shadow-2xs cursor-pointer"
-              title="임박 및 경과 재료를 장바구니에 일괄 추가합니다"
-            >
-              <ShoppingCart className="w-3.5 h-3.5 text-amber-600" />
-              <span>🚨 임박 재료 장바구니 담기 ({expiredCount + warningCount}개)</span>
-            </button>
-          )}
-
-          {ingredients.length > 0 && (
-            <button
-              type="button"
-              onClick={onTriggerRecipeGeneration}
-              disabled={isGeneratingRecipes}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
-            >
-              {isGeneratingRecipes ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>셰프가 레시피 추천 조합 중...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>현재 보관 재료로 요리 추천받기</span>
-                </>
-              )}
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Empty State when no ingredients registered */}
@@ -263,18 +366,28 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
             const displayImage = item.imageUrl || (lacksIcon ? generateStylizedFoodSvg(item.name) : null);
             const isGeneratingThis = generatingImageId === item.id;
             const itemQty = item.quantity || '1개';
+            const isMain = selectedMainIngredients.includes(item.name);
 
             return (
               <div
                 key={item.id}
-                className={`p-4 rounded-2xl border transition-all flex flex-col justify-between hover:shadow-xs ${
-                  isExpired
+                className={`p-4 rounded-2xl border transition-all flex flex-col justify-between hover:shadow-xs relative ${
+                  isMain
+                    ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-400/80 shadow-xs'
+                    : isExpired
                     ? 'bg-rose-50/60 border-rose-200 text-rose-950'
                     : isWarning
                     ? 'bg-amber-50/60 border-amber-200 text-amber-950'
                     : 'bg-slate-50/70 border-slate-200 text-slate-800'
                 }`}
               >
+                {/* Main badge indicator if selected */}
+                {isMain && (
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-black shadow-2xs tracking-wide">
+                    ★ 메인 재료 선택됨
+                  </span>
+                )}
+
                 <div>
                   {/* Top Bar with Icon or Stylized Illustration Thumbnail */}
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -303,20 +416,54 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
                         <span className="font-bold text-sm leading-tight text-slate-900 block truncate">
                           {item.name}
                         </span>
-                        <span className="text-[10px] text-slate-500 block">
-                          {iconMatch.category}
-                        </span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateIngredient(item.id, {
+                                itemType: item.itemType === 'side_dish' ? 'ingredient' : 'side_dish',
+                              })
+                            }
+                            className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold border transition-all cursor-pointer ${
+                              item.itemType === 'side_dish'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                            }`}
+                            title="클릭하여 식재료/반찬 구분 전환"
+                          >
+                            {item.itemType === 'side_dish' ? '🍱 반찬' : '🥬 식재료'}
+                          </button>
+                          <span className="text-[10px] text-slate-400 block truncate">
+                            {iconMatch.category}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => onDeleteIngredient(item.id)}
-                      className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-white/80 transition-all cursor-pointer"
-                      title="삭제"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleMainIngredient(item.name)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                          isMain
+                            ? 'bg-amber-500 text-white shadow-2xs font-black'
+                            : 'bg-white hover:bg-amber-50 text-slate-600 hover:text-amber-700 border border-slate-200'
+                        }`}
+                        title={isMain ? '메인 재료 해제' : '오늘 요리의 메인 재료로 지정'}
+                      >
+                        <Star className={`w-3 h-3 ${isMain ? 'fill-white text-white' : 'text-amber-400'}`} />
+                        <span>{isMain ? '메인✓' : '메인'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onDeleteIngredient(item.id)}
+                        className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-white/80 transition-all cursor-pointer"
+                        title="삭제"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Quantity & Inventory Stock Manager Bar */}

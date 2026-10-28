@@ -375,46 +375,31 @@ export const RecipeDisplay: React.FC<RecipeDisplayProps> = ({
                   </div>
                 </div>
 
-                {/* Missing ingredients to buy with direct Coupang link for each item */}
+                {/* Missing ingredients to buy with Add to Cart button only */}
                 <div className="mb-3">
-                  <span className="text-[11px] font-bold text-amber-700 flex items-center gap-1 mb-1.5">
-                    <ShoppingBag className="w-3.5 h-3.5 text-amber-600" /> 추가 구매 필요 (각각 쿠팡 바로가기):
+                  <span className="text-[11px] font-bold text-amber-800 flex items-center gap-1 mb-1.5">
+                    <ShoppingBag className="w-3.5 h-3.5 text-amber-600" /> 추가 구매 필요 재료:
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {exp.missingIngredientsToBuy.map((item, i) => {
-                      const coupangUrl = generateCoupangSearchUrl(item);
-                      return (
-                        <div
-                          key={i}
-                          className="flex items-center gap-1.5 bg-amber-50 border border-amber-200/90 rounded-xl px-2.5 py-1 text-xs shadow-2xs"
+                    {exp.missingIngredientsToBuy.map((item, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 bg-amber-50/90 border border-amber-200/90 rounded-xl px-2.5 py-1 text-xs shadow-2xs"
+                      >
+                        <span className="font-bold text-amber-950 text-xs">{item}</span>
+
+                        {/* Add to general cart button only */}
+                        <button
+                          type="button"
+                          onClick={() => onAddShoppingItem(item, `확장 메뉴: ${exp.title}용 재료`)}
+                          className="px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                          title="장바구니에 담기"
                         >
-                          <span className="font-bold text-amber-950 text-[11px]">{item}</span>
-
-                          {/* Individual Coupang Search Link */}
-                          <a
-                            href={coupangUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-1.5 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-[10px] inline-flex items-center gap-0.5 shadow-2xs transition-all hover:scale-105"
-                            title={`쿠팡에서 '${item}' 최저가 바로 검색`}
-                          >
-                            <span>쿠팡</span>
-                            <ExternalLink className="w-2.5 h-2.5" />
-                          </a>
-
-                          {/* Add to general cart button */}
-                          <button
-                            type="button"
-                            onClick={() => onAddShoppingItem(item, `확장 메뉴: ${exp.title}용 재료`)}
-                            className="px-1.5 py-0.5 rounded bg-amber-200/80 hover:bg-amber-300 text-amber-900 font-bold text-[10px] inline-flex items-center gap-0.5 transition-all cursor-pointer"
-                            title="장바구니에 담기"
-                          >
-                            <PlusCircle className="w-2.5 h-2.5 text-amber-800" />
-                            <span>담기</span>
-                          </button>
-                        </div>
-                      );
-                    })}
+                          <PlusCircle className="w-3 h-3 text-white" />
+                          <span>장바구니 담기</span>
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -422,21 +407,6 @@ export const RecipeDisplay: React.FC<RecipeDisplayProps> = ({
                 <div className="p-3 rounded-xl bg-white border border-slate-200/80 text-xs text-slate-700 leading-relaxed font-medium">
                   <p>{exp.briefSteps}</p>
                 </div>
-              </div>
-
-              {/* Quick Coupang search action */}
-              <div className="mt-4 pt-3 border-t border-slate-200/70 flex items-center justify-between text-xs">
-                <span className="text-[11px] text-slate-400">부족한 재료 구매:</span>
-                <a
-                  href={generateCoupangSearchUrl(
-                    exp.missingIngredientsToBuy[0] || exp.title
-                  )}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1"
-                >
-                  쿠팡 최저가 검색 <ExternalLink className="w-3 h-3" />
-                </a>
               </div>
             </div>
           ))}
