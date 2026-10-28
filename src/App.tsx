@@ -48,6 +48,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<SimpleUser | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>('guest');
   const [activePresetId, setActivePresetId] = useState<string | undefined>(undefined);
+  const [selectedPreset, setSelectedPreset] = useState<PresetScenario | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isGeneratingRecipes, setIsGeneratingRecipes] = useState<boolean>(false);
   const [isSavingReview, setIsSavingReview] = useState<boolean>(false);
@@ -273,11 +274,16 @@ export default function App() {
   // Preset selection handler
   const handleSelectPreset = (preset: PresetScenario) => {
     setActivePresetId(preset.id);
-    if (preset.type === 'image' && preset.imagePreviewUrl) {
-      handleAnalyzeExtract(preset.textInput, preset.imagePreviewUrl);
-    } else {
-      handleAnalyzeExtract(preset.textInput, null);
-    }
+    setSelectedPreset(preset);
+    setActiveNavTab('fridge'); // Ensure we are on the fridge tab
+
+    // Smoothly scroll to input section on PC
+    setTimeout(() => {
+      const el = document.getElementById('input-section');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 60);
   };
 
   // Firestore CRUD handlers
@@ -379,32 +385,38 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Top Header */}
+      {/* Top Header with Mall-Style Cart Icon */}
       <Header
         onSelectPreset={handleSelectPreset}
         activePresetId={activePresetId}
         user={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
+        cartCount={shoppingList.length}
+        onOpenCart={() => setActiveNavTab('cart')}
+        activeNavTab={activeNavTab}
       />
 
-      {/* Top View Navigation Tabs */}
-      <div className="max-w-6xl w-full mx-auto px-4 pt-4 sm:pt-6">
-        <div className="flex items-center gap-2 p-1.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-x-auto scrollbar-none">
+      {/* Top View Navigation Tabs (3-column responsive grid so all tabs fit on mobile without sliding) */}
+      <div className="max-w-6xl w-full mx-auto px-3 sm:px-4 pt-3 sm:pt-5">
+        <div className="grid grid-cols-3 gap-1 sm:gap-2 p-1 sm:p-1.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs">
           <button
             type="button"
             onClick={() => setActiveNavTab('fridge')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 ${
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               activeNavTab === 'fridge'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
             }`}
           >
-            <Refrigerator className="w-4 h-4" />
-            <span>냉장고 & AI 요리 추천</span>
+            <Refrigerator className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="truncate">
+              <span className="sm:hidden">냉장고</span>
+              <span className="hidden sm:inline">냉장고 & AI 요리</span>
+            </span>
             {firestoreIngredients.length > 0 && (
               <span
-                className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-black shrink-0 ${
                   activeNavTab === 'fridge'
                     ? 'bg-emerald-800 text-emerald-100'
                     : 'bg-slate-200 text-slate-700'
@@ -418,20 +430,23 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveNavTab('favorites')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 ${
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               activeNavTab === 'favorites'
                 ? 'bg-amber-500 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
             }`}
           >
             <Star
-              className={`w-4 h-4 ${
+              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
                 activeNavTab === 'favorites' ? 'fill-white text-white' : 'text-amber-500'
               }`}
             />
-            <span>즐겨찾기 레시피</span>
+            <span className="truncate">
+              <span className="sm:hidden">즐겨찾기</span>
+              <span className="hidden sm:inline">즐겨찾기 레시피</span>
+            </span>
             <span
-              className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+              className={`px-1.5 sm:px-2 py-0.2 sm:py-0.5 rounded-full text-[10px] sm:text-[11px] font-black shrink-0 ${
                 activeNavTab === 'favorites'
                   ? 'bg-amber-700 text-amber-100'
                   : 'bg-amber-100 text-amber-800'
@@ -444,17 +459,20 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveNavTab('cart')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 ${
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               activeNavTab === 'cart'
                 ? 'bg-slate-900 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
             }`}
           >
-            <ShoppingCart className="w-4 h-4 text-emerald-400" />
-            <span>일반 장바구니</span>
+            <ShoppingCart className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 shrink-0" />
+            <span className="truncate">
+              <span className="sm:hidden">장바구니</span>
+              <span className="hidden sm:inline">일반 장바구니</span>
+            </span>
             {shoppingList.length > 0 && (
               <span
-                className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                className={`px-1.5 sm:px-2 py-0.2 sm:py-0.5 rounded-full text-[10px] sm:text-[11px] font-black shrink-0 ${
                   activeNavTab === 'cart'
                     ? 'bg-slate-700 text-slate-100'
                     : 'bg-slate-200 text-slate-700'
@@ -477,7 +495,13 @@ export default function App() {
               onDirectAddIngredient={handleDirectAddIngredient}
               onAnalyzeExtract={handleAnalyzeExtract}
               isLoading={isLoading}
+              selectedPreset={selectedPreset}
+              activePresetId={activePresetId}
               onSelectPreset={handleSelectPreset}
+              onClearPreset={() => {
+                setSelectedPreset(null);
+                setActivePresetId(undefined);
+              }}
             />
 
             {/* Loading Indicator Overlay/Banner */}
