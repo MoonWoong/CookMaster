@@ -30,17 +30,21 @@ const getAIClient = () => {
   });
 };
 
-const CHEF_SYSTEM_INSTRUCTION = `당신은 버려지는 식재료 없이 최고의 맛을 이끌어내는 천재 셰프이자, 스마트 주방 AI 어시스턴트 '냉장고를 부탁해'의 핵심 엔진입니다.
-오늘 날짜는 2026-10-23입니다. 식재료의 유통기한과 현재 날짜(2026-10-23)를 비교하여 신선도를 엄밀하게 판별하세요.
+const CHEF_SYSTEM_INSTRUCTION = `당신은 버려지는 식재료 없이 최고의 맛을 이끌어내는 대한민국 최고 수준의 셰프이자, 스마트 주방 AI 어시스턴트 '냉장고를 부탁해'의 핵심 엔진입니다.
+오늘 날짜는 2026-10-29입니다. 식재료의 유통기한/보관일과 현재 날짜(2026-10-29)를 비교하여 신선도를 엄밀하게 판별하세요.
 
-사용자로부터 냉장고에 있는 식재료 리스트(텍스트) 혹은 냉장고 내부/영수증 사진을 전달받습니다. 
-사진인 경우 식재료 이름과 대략적인 유통기한(영수증의 구매일자나 제품 라벨, 혹은 통상적인 보관기한)을 분석해 내야 합니다.
-이를 바탕으로 아래의 3가지 카테고리에 맞춰 맞춤형 요리 레시피를 제안하고, 구매가 필요한 식재료 리스트를 도출하여 반드시 정해진 JSON 형식으로만 응답하세요.
+사용자로부터 냉장고에 있는 식재료 리스트(텍스트) 혹은 냉장고 내부/영수증 사진, 그리고 실제 등록된 냉장고 보유 식재료 리스트를 전달받습니다.
+
+# ★ [절대 규칙] 사용자 실제 보유 재고 정밀 인식 및 식재료 날조(환각) 금지:
+1. 사용자가 현재 가지고 있지 않은 식재료(예: 콩나물이 없는데 콩나물 요리를 추천하거나, 두부가 없는데 두부를 사용하는 것 등)를 절대로 '유통기한 임박 레시피(urgentRecipe)'의 구출 식재료(usedExpiringIngredients)나 주재료로 임의 추가해서는 안 됩니다!
+2. '유통기한 임박 레시피(urgentRecipe)'는 반드시 사용자가 제공한 실제 재고 중 유통기한이 가장 임박했거나 지난 재료(또는 사용자가 지정한 메인 재료)만을 최우선 구출 재료(usedExpiringIngredients)로 삼아야 합니다.
+3. 소금, 설탕, 간장, 식용유, 고춧가루, 다진 마늘, 참기름, 물 등 일반 가정의 기본 양념류를 제외하고는, 사용자가 보유하고 있지 않은 새로운 재료는 오직 '확장 레시피(expansionRecipes)'의 '추가 구매 필요 재료(missingIngredientsToBuy)'나 '쇼핑 리스트(shoppingList)'에만 넣어야 합니다.
+4. 사용자의 현재 보유 식재료 리스트를 정밀 대조하여, 실제 냉장고에 있는 재료들만을 조합해 최적의 레시피를 제안하세요.
 
 # Core Logic (레시피 추천 기준)
-1. 유통기한 임박 레시피 (1개): 현재 유통기한이 가장 임박했거나 지난 재료를 최우선으로 구출하는 메인 요리. (urgentRecipe)
-2. 남은 식재료 레시피 (1개): 남은 재료들을 조합해 완전히 다른 스타일로 즐길 수 있는 추가 메인 요리. (alternativeRecipe)
-3. 확장 레시피 (2~3개): 현재 재료에 몇 가지 식재료만 추가로 구매하면 만들 수 있는 간단한 메뉴들. (expansionRecipes)
+1. 유통기한 임박 레시피 (1개): 현재 유통기한이 가장 임박했거나 지난 실제 보유 재료를 최우선으로 구출하는 메인 요리. (urgentRecipe)
+2. 남은 식재료 레시피 (1개): 남은 실제 보유 재료들을 조합해 완전히 다른 스타일로 즐길 수 있는 추가 메인 요리. (alternativeRecipe)
+3. 확장 레시피 (2~3개): 현재 가진 재료에 1~2가지 식재료만 추가로 구매하면 만들 수 있는 메뉴들. (expansionRecipes)
 
 # Output Format (JSON 출력 규격)
 반드시 마크다운 코드 블록(\`\`\`json ... \`\`\`)을 사용하여 아래 구조의 완벽한 JSON 포맷으로만 응답하세요. 다른 부가적인 텍스트는 작성하지 마세요.
@@ -82,287 +86,269 @@ const CHEF_SYSTEM_INSTRUCTION = `당신은 버려지는 식재료 없이 최고�
   ]
 }`;
 
-// Smart fallback generator if GEMINI_API_KEY is absent or request times out
-function generateSmartChefFallback(textPrompt?: string, extraContext?: string, mainIngredients?: string[]) {
+interface FallbackIngredient {
+  name: string;
+  quantity?: string;
+  expiryDate?: string;
+  status?: 'fresh' | 'warning' | 'expired';
+  itemType?: string;
+}
+
+// Sanitize recipes against actual inventory to prevent any ghost ingredients (e.g. 콩나물)
+function sanitizeRecipesAgainstInventory(
+  recipes: any,
+  inventory: FallbackIngredient[] | null | undefined
+) {
+  if (!recipes || !inventory || inventory.length === 0) return recipes;
+
+  const validNames = inventory.map((i) => i.name.trim());
+  const validNamesLower = validNames.map((n) => n.toLowerCase());
+
+  const isPresentInInventory = (cand: string) => {
+    if (!cand) return false;
+    const clean = cand
+      .replace(/\(.*?\)/g, '')
+      .replace(/[\d\.]+\s*(개|알|봉|모|단|g|kg|캔|통|팩|줄|마리|포기)/g, '')
+      .trim()
+      .toLowerCase();
+    return validNamesLower.some((v) => v.includes(clean) || clean.includes(v));
+  };
+
+  const actualUrgent =
+    inventory.find((i) => i.status === 'expired' || i.status === 'warning') || inventory[0];
+  const heroName = actualUrgent.name;
+
+  if (recipes.urgentRecipe) {
+    const rawUsed = Array.isArray(recipes.urgentRecipe.usedExpiringIngredients)
+      ? recipes.urgentRecipe.usedExpiringIngredients.map(String)
+      : [];
+
+    const filtered = rawUsed.filter(isPresentInInventory);
+    recipes.urgentRecipe.usedExpiringIngredients = filtered.length > 0 ? filtered : [heroName];
+
+    // If title has ghost ingredients like '콩나물' while user doesn't have 콩나물, sanitize title
+    const titleStr = String(recipes.urgentRecipe.title || '');
+    if (titleStr.includes('콩나물') && !validNamesLower.some((v) => v.includes('콩나물'))) {
+      recipes.urgentRecipe.title = `기한 임박 [${heroName}] 구출! 셰프 특제 요리`;
+    }
+  }
+
+  return recipes;
+}
+
+// Smart fallback generator that strictly respects actual inventory ingredients without hallucination
+function generateSmartChefFallback(
+  textPrompt?: string,
+  extraContext?: string,
+  mainIngredients?: string[],
+  currentIngredients?: FallbackIngredient[]
+) {
   const combined = [textPrompt, extraContext].filter(Boolean).join(' ');
-  const text = combined.toLowerCase();
 
-  const primary = (Array.isArray(mainIngredients) && mainIngredients.length > 0)
-    ? mainIngredients[0]
-    : null;
+  // 1. Gather concrete inventory items
+  let inventory: FallbackIngredient[] = [];
 
-  // If user designated a main ingredient, prioritize creating custom recipes centered on it!
-  if (primary) {
-    return {
-      parsedIngredients: [
-        { name: primary, expiryDate: '2026-10-31', status: 'fresh' },
-        { name: '대파 1대', expiryDate: '2026-10-30', status: 'fresh' },
-        { name: '양파 1개', expiryDate: '2026-11-03', status: 'fresh' },
-        { name: '다진 마늘', expiryDate: '2026-11-15', status: 'fresh' },
-      ],
-      recipes: {
-        urgentRecipe: {
-          title: `[메인 맞춤] 셰프 특제 ${primary} 감칠맛 조림 & 볶음`,
-          usedExpiringIngredients: [primary],
-          ingredients: [
-            `${primary} 1~2인분 (먹기 좋게 손질)`,
-            '대파 1/2대 (송송 썰기)',
-            '양파 1/2개 (채썰기)',
-            '다진 마늘 1스푼, 진간장 1.5스푼, 올리고당 1스푼, 참기름 1스푼, 통깨 약간',
-          ],
-          steps: [
-            `달군 팬에 식용유 1스푼을 두르고 대파와 다진 마늘을 중약불에서 1분간 볶아 향긋한 파기름을 만듭니다.`,
-            `손질한 ${primary}을(를) 넣고 센 불에서 2~3분간 노릇하게 볶아 본연의 풍미를 끌어올립니다.`,
-            `진간장 1.5스푼과 올리고당 1스푼, 채 썬 양파를 넣고 양념이 쏙 배어들도록 2분간 자작하게 졸여냅니다.`,
-            `불을 끄고 참기름과 통깨를 둘러 밥반찬이나 메인 요리로 맛있게 담아냅니다.`,
-          ],
-        },
-        alternativeRecipe: {
-          title: `[초간단 별미] 든든한 ${primary} 덮밥 & 따뜻한 한 끼`,
-          ingredients: [
-            `${primary} 1인분`,
-            '따뜻한 밥 1공기',
-            '계란 1알 (프라이 또는 부드러운 스크램블)',
-            '굴소스 0.5스푼, 진간장 1스푼, 김가루',
-          ],
-          steps: [
-            `팬에 ${primary}을(를) 먹기 좋은 크기로 노릇하게 굽고 굴소스와 간장으로 가볍게 코팅하듯 볶습니다.`,
-            `따뜻한 밥 1공기를 넓은 그릇에 담고 맛있게 볶아낸 ${primary}을(를) 푸짐하게 얹습니다.`,
-            `계란과 김가루, 참기름을 톡 떨어뜨려 쓱쓱 비벼 먹으면 남녀노소 좋아하는 든든한 덮밥이 완성됩니다.`,
-          ],
-        },
-        expansionRecipes: [
-          {
-            title: `바삭 고소한 ${primary} 전 & 부침`,
-            currentIngredientsUsed: [primary, '대파'],
-            missingIngredientsToBuy: ['부침가루 500g', '홍고추 1팩'],
-            briefSteps: `${primary}을(를) 잘게 썰어 부침가루 반죽에 섞은 뒤 앞뒤로 노릇노릇 바삭하게 지져냅니다.`,
-          },
-          {
-            title: `얼큰 시원한 ${primary} 뚝배기 전골`,
-            currentIngredientsUsed: [primary],
-            missingIngredientsToBuy: ['느타리버섯 1팩', '알배기배추 1통'],
-            briefSteps: `칼칼한 멸치 다시마 육수에 ${primary}와 채소를 푸짐하게 넣어 7분간 보글보글 끓여냅니다.`,
-          },
-        ],
-      },
-      shoppingList: [
-        {
-          item: `신선한 ${primary} 추가 보충팩`,
-          reason: `메인 요리 [${primary}] 추가 조리 및 냉장고 비축용`,
-        },
-        {
-          item: '곰곰 바삭한 부침가루 500g',
-          reason: `확장 레시피: 바삭 ${primary} 전 필수 재료`,
-        },
-      ],
-    };
+  if (Array.isArray(currentIngredients) && currentIngredients.length > 0) {
+    inventory = currentIngredients
+      .filter((i) => i && i.name && i.name.trim())
+      .map((i) => ({
+        name: i.name.trim(),
+        quantity: i.quantity || '1개',
+        expiryDate: i.expiryDate || '2026-10-31',
+        status: (i.status as any) || 'fresh',
+        itemType: i.itemType || 'ingredient',
+      }));
   }
 
-  let hasTofu = text.includes('두부');
-  let hasKimchi = text.includes('김치');
-  let hasPork = text.includes('삼겹살') || text.includes('돼지고기') || text.includes('고기');
-  let hasEgg = text.includes('계란') || text.includes('달걀');
-  let hasMushroom = text.includes('버섯') || text.includes('팽이');
-  let hasOnion = text.includes('양파');
-  let hasGreenOnion = text.includes('대파') || text.includes('파');
-  let hasSpam = text.includes('스팸') || text.includes('햄');
-  let hasBeanSprouts = text.includes('콩나물');
+  // If no currentIngredients provided, parse from prompt text
+  if (inventory.length === 0 && combined.trim()) {
+    const tokens = combined
+      .split(/[,;\n]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0 && !t.includes('http') && !t.includes('{') && !t.includes('}'));
 
-  if (hasSpam || hasBeanSprouts) {
-    return {
-      parsedIngredients: [
-        { name: '신선 콩나물 1봉', expiryDate: '2026-10-24', status: 'warning' },
-        { name: '스팸 클래식 1캔', expiryDate: '2026-11-20', status: 'fresh' },
-        { name: '신선란 4알', expiryDate: '2026-11-04', status: 'fresh' },
-        { name: '묵은지', expiryDate: '2026-11-15', status: 'fresh' },
-        { name: '대파 1/2단', expiryDate: '2026-10-28', status: 'fresh' },
-      ],
-      recipes: {
-        urgentRecipe: {
-          title: '임박 콩나물 구출! 얼큰 스팸 콩나물 김치찌개',
-          usedExpiringIngredients: ['신선 콩나물 1봉'],
-          ingredients: [
-            '콩나물 150g (깨끗이 씻어 준비)',
-            '스팸 1/2캔 (숟가락으로 툭툭 떼어넣기)',
-            '신김치 1컵',
-            '대파 1/2대, 다진마늘 1스푼',
-            '고춧가루 1스푼, 국간장 1스푼, 물 500ml',
-          ],
-          steps: [
-            '냄비에 스팸을 숟가락으로 큼직하게 떼어 넣고 중불에서 2분간 노릇하게 구워 감칠맛을 냅니다.',
-            '신김치를 넣고 스팸 기름에 3분간 달달 볶아 깊은 맛을 냅니다.',
-            '물 500ml와 고춧가루, 국간장, 다진마늘을 넣고 센 불에서 끓입니다.',
-            '국물이 끓어오르면 기한 임박 콩나물을 듬뿍 넣고 뚜껑을 연 채 4분간 시원하게 끓여냅니다.',
-          ],
-        },
-        alternativeRecipe: {
-          title: '자취 10분 컷! 두툼 스팸 에그마요 덮밥',
-          ingredients: [
-            '스팸 1/2캔 (작은 주사위 깍둑썰기)',
-            '계란 2알',
-            '따뜻한 밥 1공기',
-            '진간장 1스푼, 올리고당 1스푼, 마요네즈, 김가루',
-          ],
-          steps: [
-            '팬에 깍둑썬 스팸을 노릇하게 3분간 구운 뒤 간장과 올리고당을 둘러 윤기나게 조려냅니다.',
-            '계란 2알을 풀어 부드러운 스크램블 에그를 만들어 밥 위에 얹습니다.',
-            '조려둔 스팸을 올리고 마요네즈와 김가루를 솔솔 뿌려 완성합니다.',
-          ],
-        },
-        expansionRecipes: [
-          {
-            title: '바삭 콩나물 김치 부침개',
-            currentIngredientsUsed: ['콩나물', '묵은지'],
-            missingIngredientsToBuy: ['부침가루 500g', '탄산수 1병'],
-            briefSteps:
-              '송송 썬 김치와 아삭한 콩나물을 차가운 탄산수와 부침가루에 반죽하여 팬에 바삭하게 지져냅니다.',
-          },
-          {
-            title: '스팸 순두부 열라면 찌개',
-            currentIngredientsUsed: ['스팸', '대파', '계란'],
-            missingIngredientsToBuy: ['열라면 1봉', '순두부 1팩'],
-            briefSteps:
-              '라면 물에 구운 스팸과 순두부를 넣고 끓인 뒤 파와 달걀 노른자를 얹어 얼큰하게 즐깁니다.',
-          },
-        ],
-      },
-      shoppingList: [
-        {
-          item: '곰곰 무농약 콩나물 300g',
-          reason: '유통기한 임박 콩나물 즉시 보충용',
-        },
-        {
-          item: '오뚜기 백세 바삭한 부침가루 1kg',
-          reason: '확장 레시피: 바삭 콩나물 김치 부침개 반죽용',
-        },
-        {
-          item: '풀무원 국산 순두부 350g',
-          reason: '확장 레시피: 스팸 순두부 열라면용',
-        },
-      ],
-    };
+    inventory = tokens.slice(0, 10).map((t, idx) => {
+      // Clean up bracket notes like "(식재료, 1단, 유통기한: 2026-10-25)"
+      const cleanName = t.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').trim();
+      const isUrgent = /임박|만료|어제|지남|경과/i.test(t);
+      const isSideDish = /김치|볶음|조림|무침|장아찌|젓갈|나물/i.test(cleanName);
+      return {
+        name: cleanName || `식재료 ${idx + 1}`,
+        quantity: '1개',
+        expiryDate: isUrgent ? '2026-10-29' : '2026-11-05',
+        status: isUrgent ? 'warning' : 'fresh',
+        itemType: isSideDish ? 'side_dish' : 'ingredient',
+      };
+    });
   }
+
+  // 2. Identify Hero Item (Strictly from actual inventory)
+  let hero: FallbackIngredient;
+  if (Array.isArray(mainIngredients) && mainIngredients.length > 0) {
+    const requested = mainIngredients[0].trim();
+    const matched = inventory.find((i) => i.name.toLowerCase().includes(requested.toLowerCase()));
+    hero = matched || {
+      name: requested,
+      quantity: '1인분',
+      expiryDate: '2026-10-31',
+      status: 'fresh',
+      itemType: 'ingredient',
+    };
+    if (!matched) {
+      inventory.unshift(hero);
+    }
+  } else if (inventory.length > 0) {
+    const urgentCandidate = inventory.find((i) => i.status === 'expired' || i.status === 'warning');
+    hero = urgentCandidate || inventory[0];
+  } else {
+    // True empty fallback (only when no input at all)
+    hero = { name: '달걀', quantity: '2알', expiryDate: '2026-10-31', status: 'fresh' };
+    inventory = [
+      hero,
+      { name: '대파', quantity: '1/2대', expiryDate: '2026-11-02', status: 'fresh' },
+    ];
+  }
+
+  const secondaryItems = inventory.filter((i) => i.name !== hero.name);
+  const sec1 = secondaryItems[0] || { name: '대파', quantity: '송송 썬 것' };
+
+  // 3. Construct tailor-made recipe titles according to food characteristics
+  const heroName = hero.name;
+  const isMeatOrProtein = /삼겹살|목살|소고기|돼지고기|스팸|햄|닭고기|베이컨|차돌박이|고기/i.test(heroName);
+  const isTofu = /두부|순두부|연두부/i.test(heroName);
+  const isKimchiOrSide = /김치|묵은지|깍두기|장조림|멸치볶음|진미채/i.test(heroName);
+  const isEgg = /계란|달걀/i.test(heroName);
+  const isMushroom = /버섯|팽이|표고|새송이/i.test(heroName);
+
+  let urgentTitle = `기한 임박 [${heroName}] 구출! 셰프 특제 감칠맛 볶음`;
+  let urgentSteps = [
+    `달군 팬에 식용유 1스푼을 두르고 ${sec1.name}을(를) 중약불에서 1분간 볶아 향긋한 기름을 냅니다.`,
+    `손질한 ${heroName}을(를) 넣고 센 불에서 2~3분간 노릇하게 볶아 본연의 풍미를 끌어올립니다.`,
+    `진간장 1.5스푼, 올리고당 1스푼, 다진 마늘 0.5스푼을 넣고 양념이 골고루 배도록 2분간 볶아냅니다.`,
+    `불을 끄고 참기름과 통깨를 둘러 밥반찬이나 일품 요리로 맛있게 담아냅니다.`,
+  ];
+
+  if (isMeatOrProtein) {
+    urgentTitle = `골든타임 [${heroName}] 구출! 고소한 [${heroName}] 파기름 볶음 & 구이`;
+    urgentSteps = [
+      `팬을 달군 후 손질한 ${heroName}을(를) 중불에 올려 노릇하게 기름이 배어 나올 때까지 3분간 굽습니다.`,
+      `${sec1.name}과(와) 다진 마늘 1스푼을 넣고 고기 기름에 달달 볶아 감칠맛을 배가시킵니다.`,
+      `진간장 1스푼과 후춧가루를 살짝 둘러 불맛을 입혀줍니다.`,
+      `노릇하고 바삭하게 구워진 ${heroName}에 참기름을 살짝 둘러 따뜻하게 완성합니다.`,
+    ];
+  } else if (isTofu) {
+    urgentTitle = `기한 임박 [${heroName}] 구출! 칼칼 밥도둑 [${heroName}] 조림 & 짜글이`;
+    urgentSteps = [
+      `냄비에 ${heroName}을(를) 도톰하게 썰어 바닥에 정갈하게 깔아줍니다.`,
+      `위에 ${sec1.name}을(를) 얹고 고춧가루 1.5스푼, 간장 2스푼, 다진마늘 1스푼, 물 200ml를 부어줍니다.`,
+      `센 불로 끓어오르면 중약불로 줄이고 양념이 자작하게 쏙 배어들도록 5분간 졸여냅니다.`,
+      `마지막에 참기름과 통깨를 얹어 밥 위에 쓱쓱 비벼 먹기 좋은 짜글이로 완성합니다.`,
+    ];
+  } else if (isKimchiOrSide) {
+    urgentTitle = `남은 [${heroName}]의 화려한 변신! 매콤 고소한 셰프풍 볶음밥`;
+    urgentSteps = [
+      `팬에 식용유 2스푼을 두르고 송송 썬 ${sec1.name}을(를) 볶아 향긋한 파기름을 만듭니다.`,
+      `먹기 좋게 자른 ${heroName}을(를) 넣고 센 불에서 2~3분간 달달 볶아 깊은 감칠맛을 냅니다.`,
+      `따뜻한 밥 1공기를 넣고 주걱을 세워 밥알을 고슬고슬하게 풀며 볶아줍니다.`,
+      `진간장 0.5스푼으로 팬 가장자리 불맛을 낸 뒤 참기름과 김가루를 둘러 완성합니다.`,
+    ];
+  } else if (isEgg) {
+    urgentTitle = `기한 임박 [${heroName}] 구출! 포슬포슬 부드러운 영양 달걀 요리`;
+    urgentSteps = [
+      `볼에 ${heroName}을(를) 깨뜨려 넣고 소금 한 꼬집, 참기름 0.5스푼을 넣어 부드럽게 풀어줍니다.`,
+      `송송 썬 ${sec1.name}을(를) 계란물에 섞어 알록달록한 식감을 더합니다.`,
+      `약불로 달군 팬에 기름을 얇게 두르고 계란물을 부어 포슬포슬하게 저어가며 익힙니다.`,
+      `촉촉하고 부드럽게 익었을 때 불을 끄고 잔열로 완성하여 그릇에 담아냅니다.`,
+    ];
+  } else if (isMushroom) {
+    urgentTitle = `기한 임박 [${heroName}] 구출! 쫄깃 버터 갈릭 [${heroName}] 볶음`;
+    urgentSteps = [
+      `손질한 ${heroName}의 밑동을 정리하고 먹기 좋은 크기로 가볍게 찢어 준비합니다.`,
+      `팬에 버터 1조각(또는 식용유)과 다진 마늘 1스푼을 중약불에서 볶아 풍미를 냅니다.`,
+      `${heroName}과(와) ${sec1.name}을(를) 넣고 센 불에서 수분이 날아가도록 2분간 빠르게 볶습니다.`,
+      `진간장 1스푼과 통깨, 후춧가루를 둘러 쫄깃한 식감을 살려 완성합니다.`,
+    ];
+  }
+
+  const formatIngLabel = (name: string, qty?: string) => {
+    if (!qty || name.includes(qty)) return name;
+    return `${name} ${qty}`;
+  };
+
+  // 4. Assemble recipes data
+  const urgentRecipe = {
+    title: urgentTitle,
+    usedExpiringIngredients: [heroName],
+    ingredients: [
+      formatIngLabel(heroName, hero.quantity || '1~2인분'),
+      formatIngLabel(sec1.name, sec1.quantity || '약간'),
+      '진간장 1.5스푼, 다진 마늘 1스푼, 참기름 1스푼, 식용유 1스푼, 통깨 약간',
+    ],
+    steps: urgentSteps,
+    estimatedTimeMinutes: 15,
+    difficulty: '쉬움' as const,
+  };
+
+  const altHero = secondaryItems.length > 0 ? secondaryItems[0].name : heroName;
+  const alternativeRecipe = {
+    title: `[초간단 한그릇] 든든한 [${altHero}] 덮밥 & 한 끼 요리`,
+    ingredients: [
+      `${altHero} 1인분`,
+      '따뜻한 밥 1공기',
+      '굴소스 0.5스푼, 진간장 1스푼, 참기름, 김가루',
+    ],
+    steps: [
+      `팬에 ${altHero}을(를) 먹기 좋은 크기로 손질하여 노릇하게 볶아냅니다.`,
+      `간장과 굴소스를 살짝 둘러 양념이 코팅되도록 센 불로 1분간 마무리합니다.`,
+      `넓은 그릇에 따뜻한 밥을 담고 볶아낸 ${altHero}을(를) 푸짐하게 얹습니다.`,
+      `참기름과 김가루를 솔솔 뿌려 간편하고 든든하게 비벼 드세요.`,
+    ],
+    estimatedTimeMinutes: 15,
+    difficulty: '쉬움' as const,
+  };
+
+  const expansionRecipes = [
+    {
+      title: `바삭 고소한 [${heroName}] 부침전`,
+      currentIngredientsUsed: [heroName, sec1.name],
+      missingIngredientsToBuy: ['부침가루 500g', '홍고추 1팩'],
+      briefSteps: `${heroName}을(를) 잘게 썰어 부침가루 반죽에 섞은 뒤 앞뒤로 노릇노릇 바삭하게 부쳐냅니다.`,
+      estimatedTimeMinutes: 20,
+    },
+    {
+      title: `얼큰 시원한 [${heroName}] 뚝배기 전골`,
+      currentIngredientsUsed: [heroName],
+      missingIngredientsToBuy: ['느타리버섯 1팩', '알배기배추 1통'],
+      briefSteps: `칼칼한 육수에 ${heroName}과(와) 신선한 채소를 넣어 7분간 보글보글 끓여냅니다.`,
+      estimatedTimeMinutes: 20,
+    },
+  ];
+
+  const shoppingList = [
+    {
+      item: `신선한 ${heroName} 추가 보충팩`,
+      reason: `유통기한 임박 식재료 구출 후 냉장고 신선 재고 보충용`,
+    },
+    {
+      item: '바삭한 부침가루 500g',
+      reason: `확장 레시피: 바삭 [${heroName}] 전 필수 재료`,
+    },
+  ];
 
   return {
-    parsedIngredients: [
-      {
-        name: hasTofu ? '두부 (반모)' : '두부 (부침용)',
-        expiryDate: '2026-10-24',
-        status: 'warning',
-      },
-      {
-        name: hasMushroom ? '팽이버섯 1봉' : '표고버섯 3개',
-        expiryDate: '2026-10-22',
-        status: 'expired',
-      },
-      {
-        name: hasPork ? '삼겹살 200g' : '소고기 불고기감 150g',
-        expiryDate: '2026-10-25',
-        status: 'warning',
-      },
-      {
-        name: hasKimchi ? '잘 익은 묵은지' : '배추김치',
-        expiryDate: '2026-11-20',
-        status: 'fresh',
-      },
-      {
-        name: hasEgg ? '신선 대란 4알' : '계란 2알',
-        expiryDate: '2026-11-05',
-        status: 'fresh',
-      },
-      {
-        name: hasGreenOnion ? '대파 1단' : '깐대파',
-        expiryDate: '2026-10-30',
-        status: 'fresh',
-      },
-      {
-        name: hasOnion ? '햇양파 2개' : '양파 1개',
-        expiryDate: '2026-11-02',
-        status: 'fresh',
-      },
-    ],
+    parsedIngredients: inventory.map((item) => ({
+      name: item.name,
+      expiryDate: item.expiryDate || '2026-10-31',
+      status: item.status || 'fresh',
+      quantity: item.quantity || '1개',
+      itemType: item.itemType || 'ingredient',
+    })),
     recipes: {
-      urgentRecipe: {
-        title: '골든 타임 구출! 칼칼 팽이버섯 두부 짜글이',
-        usedExpiringIngredients: ['두부 (반모)', '팽이버섯 1봉', '삼겹살 200g'],
-        ingredients: [
-          '두부 1/2모 (도톰하게 깍둑썰기)',
-          '팽이버섯 1봉 (밑동 자르고 찢기)',
-          '삼겹살 150g (한 입 크기)',
-          '묵은지 1컵',
-          '대파 1/2대, 청양고추 1개',
-          '양념장: 고추장 1큰술, 고춧가루 1.5큰술, 진간장 1큰술, 다진마늘 1큰술, 물 200ml',
-        ],
-        steps: [
-          '냄비에 삼겹살을 먼저 넣고 중불에서 2분간 기름이 살짝 배어 나올 때까지 볶아줍니다.',
-          '묵은지와 양념장을 넣고 고기와 함께 3분간 달달 볶아 감칠맛을 끌어올립니다.',
-          '물 200ml를 붓고 끓기 시작하면 기한 임박한 두부와 팽이버섯을 듬뿍 올립니다.',
-          '중약불로 줄여 5분간 자작하게 졸인 뒤, 송송 썬 대파를 얹어 칼칼하게 완성합니다.',
-        ],
-      },
-      alternativeRecipe: {
-        title: '냉장고 재발견! 고소한 대파 계란 볶음밥과 김치 겉절이 샐러드',
-        ingredients: [
-          '계란 2알',
-          '대파 1대 (송송 썰기)',
-          '햇반 또는 찬밥 1공기',
-          '참기름 1큰술, 굴소스 0.5큰술, 소금 한 꼬집',
-          '묵은지 속 털어낸 후 참기름에 버무린 곁들임 샐러드',
-        ],
-        steps: [
-          '팬에 식용유 2스푼과 송송 썬 대파를 듬뿍 넣고 약불에서 3분간 노릇하게 파기름을 냅니다.',
-          '파를 한쪽으로 밀고 계란 2알을 풀어 스크램블을 부드럽게 만들어 섞습니다.',
-          '밥 1공기를 넣고 주걱을 세워 밥알을 털어내듯 2분간 센 불로 볶아줍니다.',
-          '굴소스와 참기름을 두르고 마지막 불맛을 입혀 그릇에 담아냅니다.',
-        ],
-      },
-      expansionRecipes: [
-        {
-          title: '얼큰 차돌 순두부 짬뽕탕',
-          currentIngredientsUsed: ['대파 1단', '계란 1알', '양파 1개'],
-          missingIngredientsToBuy: ['신선 순두부 1팩', '차돌박이 200g', '생면사리'],
-          briefSteps:
-            '차돌박이와 파, 양파를 고춧가루와 볶아 짬뽕 기름을 낸 후, 물을 붓고 순두부와 생면을 넣어 5분간 끓입니다.',
-        },
-        {
-          title: '겉바속촉 모둠 버섯 삼겹 솥밥',
-          currentIngredientsUsed: ['삼겹살', '팽이버섯', '대파'],
-          missingIngredientsToBuy: ['새송이버섯 1팩', '표고버섯 2개', '쯔유 소스'],
-          briefSteps:
-            '불린 쌀 위에 노릇하게 구운 삼겹살과 버섯을 얹고 쯔유 육수를 부어 15분간 냄비 밥을 짓습니다.',
-        },
-        {
-          title: '스페인식 감자 계란 토르티야 오믈렛',
-          currentIngredientsUsed: ['계란 4알', '양파 1개'],
-          missingIngredientsToBuy: ['햇감자 2개', '베이컨 1팩', '체다치즈'],
-          briefSteps:
-            '감자와 양파를 올리브유에 볶아 부드럽게 익힌 뒤 달걀물을 부어 도톰하게 양면을 부쳐냅니다.',
-        },
-      ],
+      urgentRecipe,
+      alternativeRecipe,
+      expansionRecipes,
     },
-    shoppingList: [
-      {
-        item: '친환경 무농약 팽이버섯 3입',
-        reason: '유통기한 경과 버섯 즉시 대체용',
-      },
-      {
-        item: '국산 콩 100% 찌개용 두부 300g',
-        reason: '유통기한 임박 식재료 보충',
-      },
-      {
-        item: '신선 순두부 350g 2팩',
-        reason: '확장 레시피: 얼큰 차돌 순두부 짬뽕탕 필수 재료',
-      },
-      {
-        item: '한우 차돌박이 구이용 300g',
-        reason: '확장 레시피: 짬뽕탕 및 솥밥 토핑 재료',
-      },
-      {
-        item: '제주 햇수미감자 1kg',
-        reason: '확장 레시피: 스페인식 토르티야 오믈렛용',
-      },
-    ],
+    shoppingList,
   };
 }
 
@@ -430,18 +416,47 @@ function parseImagePayload(imageBase64?: string, mimeType?: string): {
 // API: Analyze Fridge (Text or Image)
 app.post('/api/analyze-fridge', async (req: Request, res: Response) => {
   try {
-    const { text, imageBase64, mimeType, mainIngredients } = req.body;
+    const { text, imageBase64, mimeType, mainIngredients, currentIngredients } = req.body;
+
+    const inventoryList: FallbackIngredient[] | null =
+      Array.isArray(currentIngredients) && currentIngredients.length > 0
+        ? currentIngredients
+        : null;
 
     const parsedImage = parseImagePayload(imageBase64, mimeType);
     const combinedContext = [text, parsedImage.extractedText].filter(Boolean).join('\n');
-    const mainDirective = (Array.isArray(mainIngredients) && mainIngredients.length > 0)
-      ? `\n[★ 중요: 사용자가 지정한 메인 식재료: ${mainIngredients.join(', ')}]\n반드시 지정된 메인 식재료(${mainIngredients.join(', ')})를 주인공으로 삼아 맛있는 요리 레시피를 제안하세요.`
-      : '';
+    const mainDirective =
+      Array.isArray(mainIngredients) && mainIngredients.length > 0
+        ? `\n[★ 중요: 사용자가 지정한 메인 식재료: ${mainIngredients.join(', ')}]\n반드시 지정된 메인 식재료(${mainIngredients.join(', ')})를 주인공으로 삼아 맛있는 요리 레시피를 제안하세요.`
+        : '';
+
+    // If current registered ingredients exist, construct a strict inventory list directive
+    let inventoryDirective = '';
+    if (inventoryList && inventoryList.length > 0) {
+      const itemsFormatted = inventoryList
+        .map(
+          (i) =>
+            `- ${i.name} (수량: ${i.quantity || '1개'}, 유통기한/보관일: ${i.expiryDate || '정보 없음'}, 상태: ${i.status || '확인 필요'}, 구분: ${i.itemType === 'side_dish' ? '반찬' : '식재료'})`
+        )
+        .join('\n');
+
+      inventoryDirective = `\n\n[★ 사용자의 실제 냉장고 보유 식재료 목록 (총 ${inventoryList.length}개) ★]\n${itemsFormatted}\n
+[★ 엄격 준수 규칙 - 식재료 임의 날조 절대 금지 ★]
+1. 위 보유 식재료 목록에 존재하지 않는 재료(예: 콩나물이 없는데 콩나물 요리를 추천하거나, 콩나물을 usedExpiringIngredients에 넣는 행위)를 절대로 '유통기한 임박 레시피(urgentRecipe)'의 구출 재료(usedExpiringIngredients)나 주재료로 날조하지 마세요!
+2. '유통기한 임박 레시피(urgentRecipe)'는 반드시 사용자의 실제 재고 중 유통기한이 가장 임박하거나 지난 재료(또는 사용자가 지정한 메인 재료)만을 최우선 구출 재료(usedExpiringIngredients)로 지정해야 합니다.
+3. 기본 양념(소금, 간장, 참기름, 식용유, 설탕, 고춧가루, 다진 마늘 등)을 제외한 모든 새로운 재료는 오직 '확장 레시피(expansionRecipes)'의 '추가 구매 필요 재료(missingIngredientsToBuy)'나 '쇼핑 리스트(shoppingList)'에만 위치해야 합니다.
+4. 사용자의 실제 재고(${inventoryList.map((i) => i.name).join(', ')})만을 바탕으로 최고의 레시피를 제안하세요.`;
+    }
 
     const ai = getAIClient();
     if (!ai) {
       console.warn('GEMINI_API_KEY not found. Using intelligent chef fallback.');
-      const fallback = generateSmartChefFallback(text, parsedImage.extractedText, mainIngredients);
+      const fallback = generateSmartChefFallback(
+        text,
+        parsedImage.extractedText,
+        mainIngredients,
+        inventoryList || undefined
+      );
       return res.json({ success: true, data: fallback });
     }
 
@@ -453,13 +468,13 @@ app.post('/api/analyze-fridge', async (req: Request, res: Response) => {
       });
       contents.push({
         text: `다음 냉장고 내부 또는 영수증 사진을 정밀 분석해주세요. 
-식재료 이름과 추정 유통기한/상태를 파악하고, 유통기한 임박 레시피, 남은 재료 대체 레시피, 확장 레시피 및 쇼핑 리스트를 도출하세요.${mainDirective}
+식재료 이름과 추정 유통기한/상태를 파악하고, 유통기한 임박 레시피, 남은 재료 대체 레시피, 확장 레시피 및 쇼핑 리스트를 도출하세요.${mainDirective}${inventoryDirective}
 사용자 추가 메모: ${combinedContext || '없음'}`,
       });
     } else {
       contents.push({
-        text: `다음 냉장고 보관 식재료 텍스트 및 이미지 라벨 내용을 정밀 분석해주세요:
-"${combinedContext || '두부, 대파, 팽이버섯, 계란, 김치, 양파, 돼지고기'}"${mainDirective}
+        text: `다음 냉장고 보관 식재료 텍스트 및 보유 재고 목록을 정밀 분석해주세요:
+"${combinedContext || '냉장고 재료'}"${mainDirective}${inventoryDirective}
 
 식재료 이름과 유통기한 상태를 파악하고, 3가지 핵심 레시피와 쇼핑 리스트를 도출하세요.`,
       });
@@ -491,9 +506,17 @@ app.post('/api/analyze-fridge', async (req: Request, res: Response) => {
         .replace(/```/g, '')
         .trim();
       parsed = JSON.parse(cleaned);
+      if (parsed?.recipes) {
+        parsed.recipes = sanitizeRecipesAgainstInventory(parsed.recipes, inventoryList);
+      }
     } catch (parseErr) {
       console.error('Failed to parse model JSON:', parseErr, outputText);
-      parsed = generateSmartChefFallback(text, parsedImage.extractedText, mainIngredients);
+      parsed = generateSmartChefFallback(
+        text,
+        parsedImage.extractedText,
+        mainIngredients,
+        inventoryList || undefined
+      );
     }
 
     return res.json({ success: true, data: parsed });
@@ -503,7 +526,8 @@ app.post('/api/analyze-fridge', async (req: Request, res: Response) => {
     const fallback = generateSmartChefFallback(
       req.body?.text,
       parsedImage.extractedText,
-      req.body?.mainIngredients
+      req.body?.mainIngredients,
+      req.body?.currentIngredients
     );
     return res.json({
       success: true,

@@ -1,12 +1,15 @@
 export type IngredientStatus = 'fresh' | 'warning' | 'expired';
 export type ItemType = 'ingredient' | 'side_dish'; // 'ingredient' = 식재료, 'side_dish' = 반찬
+export type DateManageType = 'expiry' | 'registered'; // 'expiry' = 유통기한 기준, 'registered' = 등록일(보관시작일) 기준
 
 export interface ParsedIngredient {
   id: string;
   name: string;
-  expiryDate: string; // "YYYY-MM-DD" or "임박/D-day"
+  expiryDate: string; // "YYYY-MM-DD" or "임박/D-day" (for expiry type) or display date
   status: IngredientStatus;
   itemType?: ItemType; // 'ingredient' (식재료) | 'side_dish' (반찬)
+  dateManageType?: DateManageType; // 'expiry' (유통기한) | 'registered' (등록일)
+  registeredDate?: string; // "YYYY-MM-DD" (for registered type)
   category?: string;
   quantity?: string;
   imageUrl?: string;

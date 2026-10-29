@@ -29,6 +29,16 @@
           "enum": ["ingredient", "side_dish"],
           "description": "Classification whether item is a cooking ingredient (식재료) or a prepared side dish (반찬)"
         },
+        "dateManageType": {
+          "type": "string",
+          "enum": ["expiry", "registered"],
+          "description": "Whether item is managed by expiry date (유통기한) or registration date (등록일/보관시작일)"
+        },
+        "registeredDate": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "Registration date when managed by registration date"
+        },
         "category": {
           "type": "string",
           "maxLength": 50,
@@ -194,6 +204,41 @@
         }
       },
       "required": ["id", "userId", "item"]
+    },
+    "NotificationSetting": {
+      "title": "NotificationSetting",
+      "description": "User scheduled notification settings for imminent expiry alerts",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier, usually matching userId"
+        },
+        "userId": {
+          "type": "string",
+          "description": "User ID owning these settings"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether daily push alarm is enabled"
+        },
+        "time": {
+          "type": "string",
+          "maxLength": 10,
+          "description": "Daily notification time in HH:mm format"
+        },
+        "lastNotifiedDate": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "Date string of last sent notification"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Update timestamp"
+        }
+      },
+      "required": ["id", "userId", "enabled", "time"]
     }
   },
   "firestore": {
@@ -220,6 +265,12 @@
         "$ref": "#/entities/CartItem"
       },
       "description": "Collection of shopping cart items synchronized across devices"
+    },
+    "/notification_settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/NotificationSetting"
+      },
+      "description": "Collection of user push notification preferences"
     }
   }
 }

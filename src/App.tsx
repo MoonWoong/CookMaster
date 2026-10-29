@@ -18,9 +18,14 @@ import {
   ShoppingListItem,
   FavoriteRecipe,
   ItemType,
+  DateManageType,
 } from './types/fridge';
-import { PRESET_SCENARIOS, PresetScenario } from './data/presets';
-import { normalizeFridgeResponse, calculateDDay, extractQuantityFromName } from './utils/recipeLogic';
+import {
+  normalizeFridgeResponse,
+  calculateDDay,
+  calculateIngredientFreshness,
+  extractQuantityFromName,
+} from './utils/recipeLogic';
 import { auth } from './lib/firebase';
 import {
   getActiveSimpleUser,
@@ -43,7 +48,15 @@ import {
   updateCartItemInFirestore,
   deleteCartItemFromFirestore,
 } from './lib/ingredientsService';
-import { ChefHat, Refrigerator, Star, ShoppingCart } from 'lucide-react';
+import { NotificationSettingsModal } from './components/NotificationSettingsModal';
+import { NotificationSettings, DEFAULT_NOTIFICATION_SETTINGS } from './types/notification';
+import {
+  fetchNotificationSettings,
+  persistNotificationSettings,
+  evaluateScheduledAlarm,
+  sendBrowserPushNotification,
+} from './lib/notificationService';
+import { ChefHat, Refrigerator, Star, ShoppingCart, Bell, X, AlertTriangle } from 'lucide-react';
 
 export type NavTab = 'fridge' | 'favorites' | 'cart';
 
@@ -52,15 +65,19 @@ export default function App() {
   const [detailModalRecipe, setDetailModalRecipe] = useState<FavoriteRecipe | null>(null);
   const [currentUser, setCurrentUser] = useState<SimpleUser | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>('guest');
-  const [activePresetId, setActivePresetId] = useState<string | undefined>(undefined);
-  const [selectedPreset, setSelectedPreset] = useState<PresetScenario | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isGeneratingRecipes, setIsGeneratingRecipes] = useState<boolean>(false);
   const [isSavingReview, setIsSavingReview] = useState<boolean>(false);
 
-  // Modals
+  // Modals & Notification state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+  const [scheduledAlarmBanner, setScheduledAlarmBanner] = useState<{
+    message: string;
+    items: ParsedIngredient[];
+  } | null>(null);
   const [pendingReviewItems, setPendingReviewItems] = useState<ParsedIngredient[]>([]);
 
   // Firestore ingredients state
@@ -182,6 +199,53 @@ export default function App() {
     return () => unsubscribe();
   }, [currentUserId]);
 
+  // 4. Fetch notification settings for current user
+  useEffect(() => {
+    fetchNotificationSettings(currentUserId).then((settings) => {
+      setNotificationSettings(settings);
+    });
+  }, [currentUserId]);
+
+  // 5. Periodic check (every 25 seconds) to trigger push notification at user-configured time
+  useEffect(() => {
+    const checkScheduledNotification = () => {
+      if (!notificationSettings.enabled || firestoreIngredients.length === 0) return;
+
+      const evalResult = evaluateScheduledAlarm(firestoreIngredients, notificationSettings);
+      if (evalResult.shouldTrigger && evalResult.urgentItems.length > 0) {
+        const previewNames = evalResult.urgentItems
+          .slice(0, 3)
+          .map((i) => i.name)
+          .join(', ');
+        const count = evalResult.urgentItems.length;
+        const title = '🚨 [냉장고를 부탁해] 유통기한 임박 식재료 알림!';
+        const body = `'${previewNames}' 등 ${count}개 재료의 유통기한이 임박했습니다. 오늘 AI 요리로 구출해보세요!`;
+
+        // Send browser push notification
+        sendBrowserPushNotification(title, { body });
+
+        // Show in-app banner alert if user currently has window open
+        setScheduledAlarmBanner({
+          message: body,
+          items: evalResult.urgentItems,
+        });
+
+        // Mark today as notified so it only sends once per day
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const updated = {
+          ...notificationSettings,
+          lastNotifiedDate: todayStr,
+        };
+        setNotificationSettings(updated);
+        persistNotificationSettings(updated);
+      }
+    };
+
+    checkScheduledNotification();
+    const timer = setInterval(checkScheduledNotification, 25000);
+    return () => clearInterval(timer);
+  }, [firestoreIngredients, notificationSettings]);
+
   const handleLogout = async () => {
     logoutSimpleUser();
     try {
@@ -211,6 +275,18 @@ export default function App() {
         body: JSON.stringify({
           text,
           imageBase64: imgData,
+          currentIngredients:
+            firestoreIngredients.length > 0
+              ? firestoreIngredients.map((i) => ({
+                  name: i.name,
+                  quantity: i.quantity,
+                  expiryDate: i.expiryDate,
+                  itemType: i.itemType || 'ingredient',
+                  dateManageType: i.dateManageType,
+                  registeredDate: i.registeredDate,
+                  status: i.status,
+                }))
+              : undefined,
         }),
       });
 
@@ -287,6 +363,15 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: ingredientText,
+          currentIngredients: firestoreIngredients.map((i) => ({
+            name: i.name,
+            quantity: i.quantity,
+            expiryDate: i.expiryDate,
+            itemType: i.itemType || 'ingredient',
+            dateManageType: i.dateManageType,
+            registeredDate: i.registeredDate,
+            status: i.status,
+          })),
           mainIngredients:
             selectedMainIngredients && selectedMainIngredients.length > 0
               ? selectedMainIngredients
@@ -298,6 +383,35 @@ export default function App() {
         const resJson = await response.json();
         if (resJson.success && resJson.data) {
           const normalized = normalizeFridgeResponse(resJson.data);
+
+          // Client-side guarantee: sanitize urgent recipe against actual fridge ingredients
+          if (firestoreIngredients.length > 0 && normalized.recipes?.urgentRecipe) {
+            const validNames = firestoreIngredients.map((i) => i.name.trim().toLowerCase());
+            const hasCand = (name: string) => {
+              const clean = name
+                .replace(/\(.*?\)/g, '')
+                .replace(/[\d\.]+\s*(개|알|봉|모|단|g|kg|캔|통|팩)/g, '')
+                .trim()
+                .toLowerCase();
+              return validNames.some((v) => v.includes(clean) || clean.includes(v));
+            };
+            const filteredUsed = (normalized.recipes.urgentRecipe.usedExpiringIngredients || []).filter(hasCand);
+            const actualUrgent =
+              firestoreIngredients.find((i) => i.status === 'expired' || i.status === 'warning') ||
+              firestoreIngredients[0];
+
+            normalized.recipes.urgentRecipe.usedExpiringIngredients =
+              filteredUsed.length > 0 ? filteredUsed : [actualUrgent.name];
+
+            // If recipe title contains forbidden phantom ingredients like '콩나물' when user has none, sanitize title
+            if (
+              normalized.recipes.urgentRecipe.title.includes('콩나물') &&
+              !validNames.some((v) => v.includes('콩나물'))
+            ) {
+              normalized.recipes.urgentRecipe.title = `기한 임박 [${actualUrgent.name}] 구출! 셰프 특제 요리`;
+            }
+          }
+
           setRecipesData(normalized.recipes);
 
           // Scroll directly down to recipe results
@@ -314,21 +428,6 @@ export default function App() {
     } finally {
       setIsGeneratingRecipes(false);
     }
-  };
-
-  // Preset selection handler
-  const handleSelectPreset = (preset: PresetScenario) => {
-    setActivePresetId(preset.id);
-    setSelectedPreset(preset);
-    setActiveNavTab('fridge'); // Ensure we are on the fridge tab
-
-    // Smoothly scroll to input section on PC
-    setTimeout(() => {
-      const el = document.getElementById('input-section');
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 60);
   };
 
   // Firestore CRUD handlers
@@ -382,17 +481,28 @@ export default function App() {
     expiryDate: string;
     quantity: string;
     itemType?: ItemType;
+    dateManageType?: DateManageType;
+    registeredDate?: string;
   }) => {
     setIsSavingCartFridge(true);
     try {
-      const dday = calculateDDay(data.expiryDate);
+      const freshness = calculateIngredientFreshness({
+        name: data.name,
+        expiryDate: data.expiryDate,
+        quantity: data.quantity,
+        itemType: data.itemType || 'ingredient',
+        dateManageType: data.dateManageType || 'expiry',
+        registeredDate: data.registeredDate,
+      });
       await addIngredientToFirestore(
         {
           name: data.name,
           expiryDate: data.expiryDate,
           quantity: data.quantity,
-          status: dday.status,
+          status: freshness.status,
           itemType: data.itemType || 'ingredient',
+          dateManageType: data.dateManageType || 'expiry',
+          registeredDate: data.registeredDate,
         },
         currentUserId
       );
@@ -436,18 +546,25 @@ export default function App() {
     }
   };
 
+  const urgentCount = firestoreIngredients.filter((i) => {
+    const freshness = calculateIngredientFreshness(i);
+    return freshness.status === 'warning' || freshness.status === 'expired';
+  }).length;
+
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Top Header with Mall-Style Cart Icon */}
+      {/* Top Header with Mall-Style Cart Icon and Alarm Settings */}
       <Header
-        onSelectPreset={handleSelectPreset}
-        activePresetId={activePresetId}
         user={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
         cartCount={shoppingList.length}
         onOpenCart={() => setActiveNavTab('cart')}
         activeNavTab={activeNavTab}
+        onOpenNotificationModal={currentUser ? () => setIsNotificationModalOpen(true) : undefined}
+        urgentCount={urgentCount}
+        notificationTime={notificationSettings.time}
+        notificationEnabled={notificationSettings.enabled}
       />
 
       {/* Top View Navigation Tabs (3-column responsive grid so all tabs fit on mobile without sliding) */}
@@ -540,6 +657,46 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-5 sm:py-7 space-y-8">
+        {/* In-app Notification Alarm Banner when triggered */}
+        {scheduledAlarmBanner && (
+          <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fadeIn border border-amber-300">
+            <div className="flex items-center gap-3.5">
+              <div className="p-3 bg-white/20 rounded-2xl shrink-0">
+                <Bell className="w-6 h-6 text-yellow-200 animate-bounce" />
+              </div>
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-100 block">
+                  🔔 설정하신 알림 시간({notificationSettings.time}) • 유통기한 임박 식재료 구출 알림!
+                </span>
+                <p className="text-xs sm:text-sm font-extrabold text-white mt-0.5 leading-snug">
+                  {scheduledAlarmBanner.message}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveNavTab('fridge');
+                  setScheduledAlarmBanner(null);
+                  document.getElementById('input-section')?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="px-4 py-2 rounded-xl bg-white hover:bg-amber-50 text-amber-950 font-black text-xs shadow-xs transition-all cursor-pointer"
+              >
+                냉장고 재고 확인
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduledAlarmBanner(null)}
+                className="p-2 rounded-xl bg-black/15 hover:bg-black/30 text-white transition-all cursor-pointer"
+                title="알림 배너 닫기"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
         {/* TAB 1: REFRIGERATOR & AI RECIPES */}
         {activeNavTab === 'fridge' && (
           <div className="space-y-8 animate-fadeIn">
@@ -548,13 +705,6 @@ export default function App() {
               onDirectAddIngredient={handleDirectAddIngredient}
               onAnalyzeExtract={handleAnalyzeExtract}
               isLoading={isLoading}
-              selectedPreset={selectedPreset}
-              activePresetId={activePresetId}
-              onSelectPreset={handleSelectPreset}
-              onClearPreset={() => {
-                setSelectedPreset(null);
-                setActivePresetId(undefined);
-              }}
             />
 
             {/* Loading Indicator Overlay/Banner */}
@@ -618,8 +768,8 @@ export default function App() {
               </div>
             )}
 
-            {/* Smart Storage Tips */}
-            <ChefTipsBanner />
+            {/* Smart Storage Tips (Shows tips for fridge ingredients if matching, or random) */}
+            <ChefTipsBanner ingredients={firestoreIngredients} />
           </div>
         )}
 
@@ -705,6 +855,17 @@ export default function App() {
         <CookingGuideModal
           recipe={activeCookingRecipe}
           onClose={() => setActiveCookingRecipe(null)}
+        />
+      )}
+
+      {/* Push Notification Alarm Settings Modal (Only accessible when logged in) */}
+      {currentUser && (
+        <NotificationSettingsModal
+          isOpen={isNotificationModalOpen}
+          onClose={() => setIsNotificationModalOpen(false)}
+          settings={notificationSettings}
+          onUpdateSettings={(newSettings) => setNotificationSettings(newSettings)}
+          ingredients={firestoreIngredients}
         />
       )}
 

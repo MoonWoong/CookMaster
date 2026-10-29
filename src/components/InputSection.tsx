@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   FileText,
   Camera,
@@ -14,52 +14,34 @@ import {
   Calendar,
   Layers,
   ArrowRight,
-  BookmarkCheck,
+  Clock,
 } from 'lucide-react';
-import { InputMode, ParsedIngredient, IngredientStatus, ItemType } from '../types/fridge';
-import { PRESET_SCENARIOS, PresetScenario } from '../data/presets';
-import { calculateDDay } from '../utils/recipeLogic';
+import { InputMode, ParsedIngredient, IngredientStatus, ItemType, DateManageType } from '../types/fridge';
+import { calculateDDay, calculateStorageDay } from '../utils/recipeLogic';
 
 interface InputSectionProps {
   onDirectAddIngredient: (item: Omit<ParsedIngredient, 'id'>) => Promise<void>;
   onAnalyzeExtract: (text: string, imageBase64: string | null) => Promise<void>;
   isLoading: boolean;
-  selectedPreset?: PresetScenario | null;
-  activePresetId?: string;
-  onSelectPreset: (preset: PresetScenario) => void;
-  onClearPreset?: () => void;
 }
-
-const COMMON_TAGS = [
-  { name: '두부', quantity: '1모', daysFromNow: 1, urgent: true, itemType: 'ingredient' as ItemType },
-  { name: '팽이버섯', quantity: '1봉', daysFromNow: -1, urgent: true, itemType: 'ingredient' as ItemType },
-  { name: '삼겹살', quantity: '300g', daysFromNow: 2, urgent: false, itemType: 'ingredient' as ItemType },
-  { name: '대파', quantity: '1단', daysFromNow: 5, urgent: false, itemType: 'ingredient' as ItemType },
-  { name: '달걀', quantity: '5알', daysFromNow: 10, urgent: false, itemType: 'ingredient' as ItemType },
-  { name: '배추김치/묵은지', quantity: '반포기', daysFromNow: 30, urgent: false, itemType: 'side_dish' as ItemType },
-  { name: '멸치볶음', quantity: '1통', daysFromNow: 14, urgent: false, itemType: 'side_dish' as ItemType },
-  { name: '소고기 장조림', quantity: '1통', daysFromNow: 12, urgent: false, itemType: 'side_dish' as ItemType },
-  { name: '진미채볶음', quantity: '1통', daysFromNow: 20, urgent: false, itemType: 'side_dish' as ItemType },
-  { name: '콩나물', quantity: '1봉지', daysFromNow: 2, urgent: true, itemType: 'ingredient' as ItemType },
-];
 
 export const InputSection: React.FC<InputSectionProps> = ({
   onDirectAddIngredient,
   onAnalyzeExtract,
   isLoading,
-  selectedPreset,
-  activePresetId,
-  onSelectPreset,
-  onClearPreset,
 }) => {
   const [activeTab, setActiveTab] = useState<'form' | 'ai'>('form');
 
   // Direct Form State
   const [formName, setFormName] = useState('');
+  const [formDateManageType, setFormDateManageType] = useState<DateManageType>('expiry');
   const [formExpiry, setFormExpiry] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
     return d.toISOString().slice(0, 10);
+  });
+  const [formRegisteredDate, setFormRegisteredDate] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
   });
   const [formQuantity, setFormQuantity] = useState('1개');
   const [formItemType, setFormItemType] = useState<ItemType>('ingredient');
@@ -72,27 +54,10 @@ export const InputSection: React.FC<InputSectionProps> = ({
   const [aiImageBase64, setAiImageBase64] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [loadedPresetInfo, setLoadedPresetInfo] = useState<PresetScenario | null>(null);
 
-  // Auto calculated D-Day for direct form
+  // Auto calculated freshness for direct form
   const formDDay = calculateDDay(formExpiry);
-
-  // Sync when selectedPreset prop changes (e.g. from header click or internal preset button)
-  useEffect(() => {
-    if (!selectedPreset) return;
-    setActiveTab('ai');
-    setLoadedPresetInfo(selectedPreset);
-
-    if (selectedPreset.type === 'image') {
-      setAiMode('image');
-      setAiImageBase64(selectedPreset.imagePreviewUrl || null);
-      setAiText(selectedPreset.textInput || '');
-    } else {
-      setAiMode('text');
-      setAiText(selectedPreset.textInput || '');
-      setAiImageBase64(null);
-    }
-  }, [selectedPreset]);
+  const formStorageDay = calculateStorageDay(formRegisteredDate, undefined, formItemType);
 
   // Handle Form Submission
   const handleDirectFormSubmit = async (e: React.FormEvent) => {
@@ -103,17 +68,22 @@ export const InputSection: React.FC<InputSectionProps> = ({
     setFormSuccessMessage(null);
 
     try {
-      const dday = calculateDDay(formExpiry);
+      const isRegistered = formDateManageType === 'registered';
+      const status = isRegistered ? formStorageDay.status : formDDay.status;
+
       await onDirectAddIngredient({
         name: formName.trim(),
-        expiryDate: formExpiry.trim() || '정보 없음',
+        expiryDate: isRegistered ? formRegisteredDate.trim() : (formExpiry.trim() || '정보 없음'),
+        dateManageType: formDateManageType,
+        registeredDate: isRegistered ? formRegisteredDate.trim() : undefined,
         quantity: formQuantity.trim() || '1개',
         itemType: formItemType,
-        status: dday.status,
+        status,
       });
 
       const typeLabel = formItemType === 'side_dish' ? '반찬' : '식재료';
-      setFormSuccessMessage(`'${formName.trim()}' (${typeLabel} · ${formQuantity}) 등록 완료!`);
+      const dateLabel = isRegistered ? `등록일 ${formRegisteredDate}` : `유통기한 ${formExpiry}`;
+      setFormSuccessMessage(`'${formName.trim()}' (${typeLabel} · ${dateLabel}) 등록 완료!`);
       setFormName('');
       setTimeout(() => setFormSuccessMessage(null), 2500);
     } catch (e) {
@@ -121,15 +91,6 @@ export const InputSection: React.FC<InputSectionProps> = ({
     } finally {
       setIsSubmittingForm(false);
     }
-  };
-
-  const handleFillQuickTag = (tag: typeof COMMON_TAGS[0]) => {
-    setFormName(tag.name);
-    setFormQuantity(tag.quantity);
-    if (tag.itemType) setFormItemType(tag.itemType);
-    const targetDate = new Date();
-    targetDate.setDate(targetDate.getDate() + tag.daysFromNow);
-    setFormExpiry(targetDate.toISOString().slice(0, 10));
   };
 
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -143,7 +104,6 @@ export const InputSection: React.FC<InputSectionProps> = ({
     const reader = new FileReader();
     reader.onload = (e) => {
       setAiImageBase64(e.target?.result as string);
-      setLoadedPresetInfo(null);
     };
     reader.readAsDataURL(file);
   };
@@ -151,8 +111,6 @@ export const InputSection: React.FC<InputSectionProps> = ({
   const handleClearAiInput = () => {
     setAiText('');
     setAiImageBase64(null);
-    setLoadedPresetInfo(null);
-    onClearPreset?.();
   };
 
   return (
@@ -201,28 +159,6 @@ export const InputSection: React.FC<InputSectionProps> = ({
       {/* MODE 1: Direct Form Input */}
       {activeTab === 'form' && (
         <div className="space-y-4 animate-fadeIn">
-          {/* Quick Item Preset Tags */}
-          <div>
-            <span className="text-xs font-semibold text-slate-500 block mb-2">
-              자주 쓰는 식재료 빠른 채우기 (클릭 시 자동 입력):
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {COMMON_TAGS.map((tag, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => handleFillQuickTag(tag)}
-                  className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all cursor-pointer ${
-                    tag.urgent
-                      ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  {tag.name} {tag.quantity}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Form Success Toast */}
           {formSuccessMessage && (
@@ -234,39 +170,77 @@ export const InputSection: React.FC<InputSectionProps> = ({
 
           {/* Direct Input Form */}
           <form onSubmit={handleDirectFormSubmit} className="space-y-4 pt-2">
-            {/* Category Type Selector: 식재료 vs 반찬 */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-700">품목 구분:</span>
-              <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setFormItemType('ingredient')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    formItemType === 'ingredient'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>🥬 요리 식재료</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormItemType('side_dish')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    formItemType === 'side_dish'
-                      ? 'bg-amber-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>🍱 보관 반찬</span>
-                </button>
+            {/* Dual Type Selectors: Category (식재료/반찬) & Date Management Mode (유통기한/등록일) */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-200/90">
+              {/* Category Type Selector: 식재료 vs 반찬 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 shrink-0">품목 구분:</span>
+                <div className="inline-flex p-1 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormItemType('ingredient');
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      formItemType === 'ingredient'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>🥬 요리 식재료</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormItemType('side_dish');
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      formItemType === 'side_dish'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>🍱 보관 반찬</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Date Management Mode: 유통기한 기준 vs 등록일 기준 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 shrink-0">관리 방식:</span>
+                <div className="inline-flex p-1 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setFormDateManageType('expiry')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      formDateManageType === 'expiry'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>유통기한 기준</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormDateManageType('registered')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      formDateManageType === 'registered'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>등록일(보관일) 기준</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 w-full">
               {/* Ingredient Name */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+              <div className="min-w-0 w-full sm:col-span-2 lg:col-span-1">
+                <label className="text-xs font-bold text-slate-700 mb-1.5 block truncate">
                   {formItemType === 'side_dish' ? '반찬 품목명' : '식재료 품목명'} <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -274,14 +248,14 @@ export const InputSection: React.FC<InputSectionProps> = ({
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
                   placeholder={formItemType === 'side_dish' ? '예: 배추김치, 멸치볶음, 진미채' : '예: 찌개용 두부, 대파, 삼겹살'}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+                  className="w-full min-w-0 max-w-full box-border px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
                   required
                 />
               </div>
 
               {/* Quantity */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1.5 block">
+              <div className="min-w-0 w-full">
+                <label className="text-xs font-bold text-slate-700 mb-1.5 block truncate">
                   수량 (단위 자유)
                 </label>
                 <input
@@ -289,38 +263,74 @@ export const InputSection: React.FC<InputSectionProps> = ({
                   value={formQuantity}
                   onChange={(e) => setFormQuantity(e.target.value)}
                   placeholder="예: 1모, 300g, 2개, 반봉지"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+                  className="w-full min-w-0 max-w-full box-border px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
                 />
               </div>
 
-              {/* Expiry Date */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-700">
-                    유통기한 (소비기한) <span className="text-rose-500">*</span>
-                  </label>
-                  <span
-                    className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
-                      formDDay.status === 'expired'
-                        ? 'bg-rose-100 text-rose-700'
-                        : formDDay.status === 'warning'
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-emerald-100 text-emerald-700'
-                    }`}
-                  >
-                    {formDDay.label}
-                  </span>
+              {/* Date Input: Expiry Date vs Registration Date */}
+              {formDateManageType === 'expiry' ? (
+                <div className="min-w-0 w-full">
+                  <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1 min-w-0">
+                    <label className="text-xs font-bold text-slate-700 truncate">
+                      유통기한 (소비기한) <span className="text-rose-500">*</span>
+                    </label>
+                    <span
+                      className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded shrink-0 ${
+                        formDDay.status === 'expired'
+                          ? 'bg-rose-100 text-rose-700'
+                          : formDDay.status === 'warning'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                    >
+                      {formDDay.label}
+                    </span>
+                  </div>
+                  <div className="relative min-w-0 w-full">
+                    <input
+                      type="date"
+                      value={formExpiry}
+                      onChange={(e) => setFormExpiry(e.target.value)}
+                      className="w-full min-w-0 max-w-full box-border px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 cursor-pointer"
+                      required
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 truncate">
+                    * 유통기한 만료 전 우선 요리 레시피를 추천해드립니다.
+                  </p>
                 </div>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={formExpiry}
-                    onChange={(e) => setFormExpiry(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 cursor-pointer"
-                    required
-                  />
+              ) : (
+                <div className="min-w-0 w-full">
+                  <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1 min-w-0">
+                    <label className="text-xs font-bold text-slate-700 truncate">
+                      등록일 (보관 시작일) <span className="text-blue-500">*</span>
+                    </label>
+                    <span
+                      className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded shrink-0 ${
+                        formStorageDay.status === 'expired'
+                          ? 'bg-rose-100 text-rose-700'
+                          : formStorageDay.status === 'warning'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}
+                    >
+                      {formStorageDay.label}
+                    </span>
+                  </div>
+                  <div className="relative min-w-0 w-full">
+                    <input
+                      type="date"
+                      value={formRegisteredDate}
+                      onChange={(e) => setFormRegisteredDate(e.target.value)}
+                      className="w-full min-w-0 max-w-full box-border px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 cursor-pointer"
+                      required
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 truncate">
+                    * 등록일 기준으로 보관 기간(N일차)을 추적합니다.
+                  </p>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Direct Submit Button */}
@@ -341,83 +351,11 @@ export const InputSection: React.FC<InputSectionProps> = ({
       {/* MODE 2: AI Multi-item Scan & Extract with Review */}
       {activeTab === 'ai' && (
         <div className="space-y-4 animate-fadeIn">
-          {/* Preset Buttons Bar directly inside AI Mode for PC & Mobile */}
-          <div className="p-3 bg-slate-50 border border-slate-200/90 rounded-2xl">
-            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                샘플 프리셋 불러오기 (클릭 시 입력창에 즉시 적용):
-              </span>
-              <span className="text-[11px] text-slate-400">클릭 후 내용 수정 가능</span>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              {PRESET_SCENARIOS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => onSelectPreset(p)}
-                  className={`text-xs px-3 py-1.5 rounded-xl transition-all font-semibold cursor-pointer border flex items-center gap-1.5 shadow-2xs ${
-                    activePresetId === p.id
-                      ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-500/20'
-                      : 'bg-white hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 border-slate-200'
-                  }`}
-                  title={p.description}
-                >
-                  <span>{p.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Active Preset Notification Banner */}
-          {loadedPresetInfo && (
-            <div className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-300 text-emerald-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
-              <div className="flex items-start sm:items-center gap-2.5">
-                <BookmarkCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5 sm:mt-0" />
-                <div>
-                  <div className="text-xs font-bold flex items-center gap-1.5">
-                    <span>'{loadedPresetInfo.name}' 프리셋이 입력창에 불러와졌습니다.</span>
-                    <span className="px-1.5 py-0.2 rounded-md bg-emerald-200/80 text-emerald-800 text-[10px] font-black">
-                      {loadedPresetInfo.badge}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-emerald-700 mt-0.5">
-                    {loadedPresetInfo.description} (아래 분석 버튼을 누르면 검토 목록이 생성됩니다)
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={() => onAnalyzeExtract(aiText, aiImageBase64)}
-                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>지금 AI 분석 실행</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearAiInput}
-                  className="p-1.5 rounded-xl bg-white hover:bg-emerald-100 text-slate-500 hover:text-slate-800 text-xs border border-emerald-200 cursor-pointer"
-                  title="입력 내용 비우기"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Sub Tab: Text vs Photo */}
           <div className="flex items-center gap-2 mb-2">
             <button
               type="button"
-              onClick={() => {
-                setAiMode('text');
-                setLoadedPresetInfo(null);
-              }}
+              onClick={() => setAiMode('text')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 aiMode === 'text'
                   ? 'bg-emerald-600 text-white shadow-xs'
@@ -428,10 +366,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => {
-                setAiMode('image');
-                setLoadedPresetInfo(null);
-              }}
+              onClick={() => setAiMode('image')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 aiMode === 'image'
                   ? 'bg-emerald-600 text-white shadow-xs'
@@ -443,16 +378,13 @@ export const InputSection: React.FC<InputSectionProps> = ({
           </div>
 
           {aiMode === 'text' ? (
-            <div className="relative">
+            <div className="relative min-w-0 w-full">
               <textarea
                 rows={4}
                 value={aiText}
-                onChange={(e) => {
-                  setAiText(e.target.value);
-                  setLoadedPresetInfo(null);
-                }}
+                onChange={(e) => setAiText(e.target.value)}
                 placeholder="예: 두부 1모 (유통기한 내일 10/27), 팽이버섯 1봉 (유통기한 지남), 삼겹살 300g, 계란 5알, 대파 1단, 양파 2개..."
-                className="w-full p-4 rounded-2xl border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none text-slate-800 text-sm leading-relaxed transition-all placeholder:text-slate-400 bg-slate-50/50"
+                className="w-full min-w-0 max-w-full box-border p-4 rounded-2xl border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none text-slate-800 text-sm leading-relaxed transition-all placeholder:text-slate-400 bg-slate-50/50"
               />
               {aiText && (
                 <button
@@ -532,10 +464,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
                   <div className="absolute top-4 right-4 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        setAiImageBase64(null);
-                        setLoadedPresetInfo(null);
-                      }}
+                      onClick={() => setAiImageBase64(null)}
                       className="p-1.5 rounded-lg bg-black/60 hover:bg-rose-600 text-white transition-all cursor-pointer"
                       title="사진 제거"
                     >

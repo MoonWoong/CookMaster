@@ -121,9 +121,9 @@ export const ShoppingListSection: React.FC<ShoppingListSectionProps> = ({
           <Plus className="w-3.5 h-3.5 text-emerald-600" /> 구매하고 싶은 물품 직접 등록
         </span>
 
-        <form onSubmit={handleAddSubmit} className="flex flex-col sm:flex-row gap-2.5 items-end">
-          <div className="flex-1 w-full">
-            <label className="text-[11px] font-bold text-slate-600 mb-1 block">
+        <form onSubmit={handleAddSubmit} className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-end w-full">
+          <div className="flex-1 min-w-0 w-full">
+            <label className="text-[11px] font-bold text-slate-600 mb-1 block truncate">
               구매 품목명 (쿠팡 검색 최적화) <span className="text-rose-500">*</span>
             </label>
             <input
@@ -131,13 +131,13 @@ export const ShoppingListSection: React.FC<ShoppingListSectionProps> = ({
               value={newItemName}
               onChange={(e) => setNewItemName(e.target.value)}
               placeholder="예: 신선 대란 10구, 찌개용 두부, 햇양파 1망..."
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+              className="w-full min-w-0 max-w-full box-border px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
               required
             />
           </div>
 
-          <div className="w-full sm:w-64">
-            <label className="text-[11px] font-bold text-slate-600 mb-1 block">
+          <div className="w-full sm:w-64 min-w-0">
+            <label className="text-[11px] font-bold text-slate-600 mb-1 block truncate">
               수량 / 메모 (선택)
             </label>
             <input
@@ -145,7 +145,7 @@ export const ShoppingListSection: React.FC<ShoppingListSectionProps> = ({
               value={newItemReason}
               onChange={(e) => setNewItemReason(e.target.value)}
               placeholder="예: 2팩, 된장찌개용, 세일 상품"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs outline-none focus:border-emerald-500 focus:bg-white"
+              className="w-full min-w-0 max-w-full box-border px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs outline-none focus:border-emerald-500 focus:bg-white"
             />
           </div>
 

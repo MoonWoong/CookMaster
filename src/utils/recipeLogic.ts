@@ -3,6 +3,8 @@ import {
   IngredientStatus,
   ParsedIngredient,
   ShoppingListItem,
+  ItemType,
+  DateManageType,
 } from '../types/fridge';
 
 /**
@@ -62,6 +64,112 @@ export function calculateDDay(
   }
 
   return { daysRemaining: null, label: expiryDateStr, status: 'fresh' };
+}
+
+/**
+ * Calculates storage days and freshness status based on registration/storage date (등록일).
+ */
+export function calculateStorageDay(
+  registeredDateStr: string,
+  baseDate: Date = new Date(),
+  itemType: ItemType = 'ingredient'
+): { daysPassed: number; label: string; status: IngredientStatus } {
+  if (!registeredDateStr) {
+    return { daysPassed: 0, label: '오늘 등록 (0일차)', status: 'fresh' };
+  }
+
+  const clean = registeredDateStr.trim();
+  const dateMatch = clean.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  if (!dateMatch) {
+    return { daysPassed: 0, label: clean, status: 'fresh' };
+  }
+
+  const year = parseInt(dateMatch[1], 10);
+  const month = parseInt(dateMatch[2], 10) - 1;
+  const day = parseInt(dateMatch[3], 10);
+
+  const regDate = new Date(year, month, day);
+  const today = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+
+  const diffTime = today.getTime() - regDate.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) {
+    return { daysPassed: 0, label: '오늘 등록 (0일차)', status: 'fresh' };
+  }
+
+  // Side dishes (반찬) typically last longer (kimchi, jangjorim, anchovies) than fresh ingredients
+  const isSideDish = itemType === 'side_dish';
+  const warningThreshold = isSideDish ? 10 : 5; // side dishes warning at day 10+, raw ingredients at day 5+
+  const expiredThreshold = isSideDish ? 25 : 12; // side dishes critical at day 25+, raw ingredients at day 12+
+
+  if (diffDays >= expiredThreshold) {
+    return {
+      daysPassed: diffDays,
+      label: `보관 ${diffDays}일차 (장기보관)`,
+      status: 'expired',
+    };
+  }
+  if (diffDays >= warningThreshold) {
+    return {
+      daysPassed: diffDays,
+      label: `보관 ${diffDays}일차 (소진권장)`,
+      status: 'warning',
+    };
+  }
+
+  return {
+    daysPassed: diffDays,
+    label: `보관 ${diffDays}일차`,
+    status: 'fresh',
+  };
+}
+
+/**
+ * Unified calculation helper supporting both 'expiry' and 'registered' date management types.
+ */
+export function calculateIngredientFreshness(
+  item: {
+    expiryDate: string;
+    dateManageType?: DateManageType;
+    registeredDate?: string;
+    itemType?: ItemType;
+    name?: string;
+    [key: string]: any;
+  },
+  baseDate: Date = new Date()
+): {
+  type: DateManageType;
+  displayDate: string;
+  label: string;
+  subLabel: string;
+  status: IngredientStatus;
+  isUrgentOrWarning: boolean;
+} {
+  const isRegistered = item.dateManageType === 'registered';
+
+  if (isRegistered) {
+    const regDate = item.registeredDate || item.expiryDate;
+    const res = calculateStorageDay(regDate, baseDate, item.itemType);
+    return {
+      type: 'registered',
+      displayDate: regDate,
+      label: res.label,
+      subLabel: `등록일: ${regDate}`,
+      status: res.status,
+      isUrgentOrWarning: res.status === 'warning' || res.status === 'expired',
+    };
+  }
+
+  const dday = calculateDDay(item.expiryDate, baseDate);
+  return {
+    type: 'expiry',
+    displayDate: item.expiryDate,
+    label: dday.label,
+    subLabel: `유통기한: ${item.expiryDate}`,
+    status: dday.status,
+    isUrgentOrWarning: dday.status === 'warning' || dday.status === 'expired',
+  };
 }
 
 /**

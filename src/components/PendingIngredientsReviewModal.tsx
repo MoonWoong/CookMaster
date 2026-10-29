@@ -8,9 +8,10 @@ import {
   Layers,
   Sparkles,
   AlertTriangle,
+  Clock,
 } from 'lucide-react';
-import { ParsedIngredient, IngredientStatus } from '../types/fridge';
-import { calculateDDay } from '../utils/recipeLogic';
+import { ParsedIngredient, IngredientStatus, DateManageType } from '../types/fridge';
+import { calculateDDay, calculateIngredientFreshness } from '../utils/recipeLogic';
 
 interface PendingIngredientsReviewModalProps {
   isOpen: boolean;
@@ -69,12 +70,19 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
     // Filter out items without a name and compute status automatically based on expiryDate
     const validItems = items
       .filter((i) => i.name.trim().length > 0)
-      .map((i) => ({
-        ...i,
-        name: i.name.trim(),
-        itemType: (i.itemType || (/김치|볶음|조림|무침|장아찌|젓갈|나물/i.test(i.name) ? 'side_dish' : 'ingredient')) as any,
-        status: calculateDDay(i.expiryDate).status,
-      }));
+      .map((i) => {
+        const itemType = (i.itemType || (/김치|볶음|조림|무침|장아찌|젓갈|나물/i.test(i.name) ? 'side_dish' : 'ingredient')) as any;
+        const dateManageType = i.dateManageType || (itemType === 'side_dish' ? 'registered' : 'expiry');
+        const freshness = calculateIngredientFreshness({ ...i, itemType, dateManageType });
+        return {
+          ...i,
+          name: i.name.trim(),
+          itemType,
+          dateManageType,
+          registeredDate: dateManageType === 'registered' ? i.expiryDate : undefined,
+          status: freshness.status,
+        };
+      });
 
     if (validItems.length === 0) {
       setErrorMessage('최소 1개 이상의 식재료 품목명을 입력해주세요.');
@@ -117,7 +125,7 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
         {/* Notice Bar */}
         <div className="px-6 py-2.5 bg-emerald-50 border-b border-emerald-100 text-emerald-900 text-xs font-medium flex items-center justify-between">
           <span>
-            💡 품목명, 유통기한, 수량을 확인하시고 필요한 내용을 수정한 후 등록을 눌러주세요.
+            💡 품목명, 유통기한 또는 등록일(보관일)을 선택 확인하시고 최종 등록을 눌러주세요.
           </span>
           <button
             type="button"
@@ -138,104 +146,123 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
 
         {/* Scrollable Items Table */}
         <div className="p-6 overflow-y-auto flex-1 space-y-3">
-          {items.map((item, idx) => (
-            <div
-              key={item.id || idx}
-              className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 hover:bg-white hover:border-emerald-300 transition-all flex flex-col sm:flex-row items-start sm:items-center gap-3"
-            >
-              {/* Index number and Item Type Toggle */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-xs font-black flex items-center justify-center shrink-0">
-                  {idx + 1}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleUpdateItem(
-                      idx,
-                      'itemType',
-                      (item.itemType === 'side_dish' ? 'ingredient' : 'side_dish') as any
-                    )
-                  }
-                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                    item.itemType === 'side_dish'
-                      ? 'bg-amber-100 text-amber-900 border-amber-300'
-                      : 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                  }`}
-                  title="클릭하여 식재료/반찬 구분 전환"
-                >
-                  {item.itemType === 'side_dish' ? '🍱 반찬' : '🥬 식재료'}
-                </button>
-              </div>
+          {items.map((item, idx) => {
+            const isRegistered = item.dateManageType === 'registered';
+            const freshness = calculateIngredientFreshness(item);
 
-              {/* Name */}
-              <div className="flex-1 w-full sm:w-auto">
-                <label className="text-[10px] font-bold text-slate-400 block mb-0.5 sm:hidden">
-                  품목명
-                </label>
-                <input
-                  type="text"
-                  value={item.name}
-                  onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
-                  placeholder="품목명 (예: 계란, 찌개두부, 멸치볶음)"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-emerald-500"
-                  required
-                />
-              </div>
+            return (
+              <div
+                key={item.id || idx}
+                className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 hover:bg-white hover:border-emerald-300 transition-all flex flex-col sm:flex-row items-start sm:items-center gap-3"
+              >
+                {/* Index number and Item Type & Date Mode Toggles */}
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                  <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-xs font-black flex items-center justify-center shrink-0">
+                    {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleUpdateItem(
+                        idx,
+                        'itemType',
+                        (item.itemType === 'side_dish' ? 'ingredient' : 'side_dish') as any
+                      )
+                    }
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                      item.itemType === 'side_dish'
+                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    }`}
+                    title="클릭하여 식재료/반찬 구분 전환"
+                  >
+                    {item.itemType === 'side_dish' ? '🍱 반찬' : '🥬 식재료'}
+                  </button>
 
-              {/* Expiry Date */}
-              <div className="w-full sm:w-36">
-                <label className="text-[10px] font-bold text-slate-400 block mb-0.5 sm:hidden">
-                  유통기한
-                </label>
-                <input
-                  type="text"
-                  value={item.expiryDate}
-                  onChange={(e) => handleUpdateItem(idx, 'expiryDate', e.target.value)}
-                  placeholder="YYYY-MM-DD"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs outline-none focus:border-emerald-500 font-medium"
-                />
-              </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleUpdateItem(
+                        idx,
+                        'dateManageType',
+                        (isRegistered ? 'expiry' : 'registered') as any
+                      )
+                    }
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                      isRegistered
+                        ? 'bg-blue-100 text-blue-900 border-blue-300'
+                        : 'bg-slate-100 text-slate-700 border-slate-300'
+                    }`}
+                    title="클릭하여 유통기한/등록일 관리 방식 전환"
+                  >
+                    {isRegistered ? '📝 등록일' : '📅 유통기한'}
+                  </button>
+                </div>
 
-              {/* Quantity (Free Unit) */}
-              <div className="w-full sm:w-28">
-                <label className="text-[10px] font-bold text-slate-400 block mb-0.5 sm:hidden">
-                  수량 (단위자유)
-                </label>
-                <input
-                  type="text"
-                  value={item.quantity || '1개'}
-                  onChange={(e) => handleUpdateItem(idx, 'quantity', e.target.value)}
-                  placeholder="예: 5개, 300g"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs outline-none focus:border-emerald-500 font-bold font-mono"
-                />
-              </div>
+                {/* Name */}
+                <div className="flex-1 min-w-0 w-full sm:w-auto">
+                  <label className="text-[10px] font-bold text-slate-400 block mb-0.5 sm:hidden">
+                    품목명
+                  </label>
+                  <input
+                    type="text"
+                    value={item.name}
+                    onChange={(e) => handleUpdateItem(idx, 'name', e.target.value)}
+                    placeholder="품목명 (예: 계란, 찌개두부, 멸치볶음)"
+                    className="w-full min-w-0 max-w-full box-border px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
 
-              {/* Auto Freshness Status (Read-only, based on Expiry Date) */}
-              <div className="w-full sm:w-28 text-center shrink-0">
-                <span className="text-[10px] font-bold text-slate-400 block mb-0.5 sm:hidden">
-                  자동 판정
-                </span>
-                {(() => {
-                  const dday = calculateDDay(item.expiryDate);
-                  return (
-                    <span
-                      className={`inline-block px-2 py-1.5 rounded-xl text-[11px] font-black tracking-tight ${
-                        dday.status === 'expired'
-                          ? 'bg-rose-100 text-rose-700 border border-rose-200'
-                          : dday.status === 'warning'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      }`}
-                      title="유통기한 기준으로 자동 판별됩니다"
-                    >
-                      {dday.label}
-                    </span>
-                  );
-                })()}
-              </div>
+                {/* Date Input */}
+                <div className="w-full sm:w-36 min-w-0">
+                  <label className="text-[10px] font-bold text-slate-400 block mb-0.5 sm:hidden">
+                    {isRegistered ? '등록일(보관시작)' : '유통기한'}
+                  </label>
+                  <input
+                    type="text"
+                    value={item.expiryDate}
+                    onChange={(e) => handleUpdateItem(idx, 'expiryDate', e.target.value)}
+                    placeholder="YYYY-MM-DD"
+                    className="w-full min-w-0 max-w-full box-border px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs outline-none focus:border-emerald-500 font-medium"
+                  />
+                </div>
 
-              {/* Delete item button */}
+                {/* Quantity (Free Unit) */}
+                <div className="w-full sm:w-28 min-w-0">
+                  <label className="text-[10px] font-bold text-slate-400 block mb-0.5 sm:hidden">
+                    수량 (단위자유)
+                  </label>
+                  <input
+                    type="text"
+                    value={item.quantity || '1개'}
+                    onChange={(e) => handleUpdateItem(idx, 'quantity', e.target.value)}
+                    placeholder="예: 5개, 300g"
+                    className="w-full min-w-0 max-w-full box-border px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs outline-none focus:border-emerald-500 font-bold font-mono"
+                  />
+                </div>
+
+                {/* Auto Freshness Status (Read-only, based on Expiry Date or Storage Duration) */}
+                <div className="w-full sm:w-28 text-center shrink-0">
+                  <span className="text-[10px] font-bold text-slate-400 block mb-0.5 sm:hidden">
+                    자동 판정
+                  </span>
+                  <span
+                    className={`inline-block px-2 py-1.5 rounded-xl text-[11px] font-black tracking-tight ${
+                      freshness.status === 'expired'
+                        ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                        : freshness.status === 'warning'
+                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                        : isRegistered
+                        ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                        : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    }`}
+                    title={freshness.subLabel}
+                  >
+                    {freshness.label}
+                  </span>
+                </div>
+
               <button
                 type="button"
                 onClick={() => handleDeleteItem(idx)}
@@ -245,7 +272,8 @@ export const PendingIngredientsReviewModal: React.FC<PendingIngredientsReviewMod
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
-          ))}
+          );
+        })}
 
           {items.length === 0 && (
             <div className="text-center py-8 text-slate-400 text-xs">

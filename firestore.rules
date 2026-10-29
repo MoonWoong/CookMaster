@@ -24,13 +24,15 @@ service cloud.firestore {
 
     function isValidIngredient(data) {
       return data.keys().hasAll(['id', 'name', 'expiryDate', 'status', 'userId'])
-        && data.keys().hasOnly(['id', 'name', 'expiryDate', 'status', 'itemType', 'category', 'quantity', 'imageUrl', 'userId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'expiryDate', 'status', 'itemType', 'dateManageType', 'registeredDate', 'category', 'quantity', 'imageUrl', 'userId', 'createdAt', 'updatedAt'])
         && data.id is string && data.id.size() <= 128
         && data.name is string && data.name.size() > 0 && data.name.size() <= 100
         && data.expiryDate is string && data.expiryDate.size() <= 30
         && data.status in ['fresh', 'warning', 'expired']
         && data.userId is string && data.userId.size() <= 128
         && (!('itemType' in data) || (data.itemType in ['ingredient', 'side_dish']))
+        && (!('dateManageType' in data) || (data.dateManageType in ['expiry', 'registered']))
+        && (!('registeredDate' in data) || (data.registeredDate is string && data.registeredDate.size() <= 30))
         && (!('category' in data) || (data.category is string && data.category.size() <= 50))
         && (!('quantity' in data) || (data.quantity is string && data.quantity.size() <= 50))
         && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 100000));
@@ -49,7 +51,7 @@ service cloud.firestore {
       allow update: if isValidId(ingredientId)
         && isValidIngredient(incoming())
         && isOwner(existing().userId)
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'expiryDate', 'status', 'itemType', 'category', 'quantity', 'imageUrl', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'expiryDate', 'status', 'itemType', 'dateManageType', 'registeredDate', 'category', 'quantity', 'imageUrl', 'updatedAt']);
       allow delete: if isValidId(ingredientId) && isOwner(existing().userId);
     }
 
@@ -106,6 +108,25 @@ service cloud.firestore {
       allow create: if isValidId(itemId) && isValidCartItem(incoming()) && isOwner(incoming().userId);
       allow update: if isValidId(itemId) && isValidCartItem(incoming()) && isOwner(existing().userId);
       allow delete: if isValidId(itemId) && isOwner(existing().userId);
+    }
+
+    function isValidNotificationSetting(data) {
+      return data.keys().hasAll(['id', 'userId', 'enabled', 'time'])
+        && data.keys().hasOnly(['id', 'userId', 'enabled', 'time', 'lastNotifiedDate', 'updatedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.enabled is bool
+        && data.time is string && data.time.size() <= 10
+        && (!('lastNotifiedDate' in data) || (data.lastNotifiedDate is string && data.lastNotifiedDate.size() <= 30))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
+    match /notification_settings/{settingId} {
+      allow get: if isValidId(settingId) && isOwner(resource.data.userId);
+      allow list: if !isSignedIn() || resource.data.userId == request.auth.uid || resource.data.userId.matches('^(guest|user).*$');
+      allow create: if isValidId(settingId) && isValidNotificationSetting(incoming()) && isOwner(incoming().userId);
+      allow update: if isValidId(settingId) && isValidNotificationSetting(incoming()) && isOwner(existing().userId);
+      allow delete: if isValidId(settingId) && isOwner(existing().userId);
     }
   }
 }

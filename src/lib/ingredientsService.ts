@@ -75,6 +75,8 @@ export function subscribeToIngredients(
             expiryDate: data.expiryDate || '정보 없음',
             status: data.status || 'fresh',
             itemType: data.itemType === 'side_dish' ? 'side_dish' : 'ingredient',
+            dateManageType: data.dateManageType === 'registered' ? 'registered' : 'expiry',
+            registeredDate: data.registeredDate || undefined,
             category: data.category || '',
             quantity: data.quantity || '',
             imageUrl: data.imageUrl || undefined,
@@ -153,11 +155,13 @@ export async function addIngredientToFirestore(
       expiryDate: ingredient.expiryDate.trim(),
       status: ingredient.status,
       itemType: ingredient.itemType === 'side_dish' ? 'side_dish' : 'ingredient',
+      dateManageType: ingredient.dateManageType === 'registered' ? 'registered' : 'expiry',
       userId: userId || 'guest',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
+    if (ingredient.registeredDate) docData.registeredDate = ingredient.registeredDate.trim();
     if (ingredient.category) docData.category = ingredient.category;
     if (ingredient.quantity) docData.quantity = ingredient.quantity;
     if (imageUrl) docData.imageUrl = imageUrl;
@@ -217,6 +221,8 @@ export async function batchAddIngredientsToFirestore(
         expiryDate: ing.expiryDate,
         status: ing.status,
         itemType: ing.itemType || 'ingredient',
+        dateManageType: ing.dateManageType || 'expiry',
+        registeredDate: ing.registeredDate,
         category: ing.category,
         quantity: ing.quantity,
         imageUrl: ing.imageUrl,

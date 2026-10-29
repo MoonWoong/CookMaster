@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Calendar, Package, Sparkles, CheckCircle2 } from 'lucide-react';
-import { ItemType } from '../types/fridge';
-import { calculateDDay } from '../utils/recipeLogic';
+import { X, Plus, Calendar, Package, Sparkles, CheckCircle2, Clock } from 'lucide-react';
+import { ItemType, DateManageType } from '../types/fridge';
+import { calculateDDay, calculateStorageDay } from '../utils/recipeLogic';
 
 interface RegisterIngredientModalProps {
   isOpen: boolean;
@@ -9,7 +9,14 @@ interface RegisterIngredientModalProps {
   initialName?: string;
   initialQuantity?: string;
   sourceNote?: string;
-  onConfirm: (data: { name: string; expiryDate: string; quantity: string; itemType?: ItemType }) => Promise<void>;
+  onConfirm: (data: {
+    name: string;
+    expiryDate: string;
+    quantity: string;
+    itemType?: ItemType;
+    dateManageType?: DateManageType;
+    registeredDate?: string;
+  }) => Promise<void>;
   isSaving?: boolean;
 }
 
@@ -24,10 +31,14 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
 }) => {
   const [name, setName] = useState('');
   const [itemType, setItemType] = useState<ItemType>('ingredient');
+  const [dateManageType, setDateManageType] = useState<DateManageType>('expiry');
   const [expiryDate, setExpiryDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
     return d.toISOString().slice(0, 10);
+  });
+  const [registeredDate, setRegisteredDate] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
   });
   const [quantity, setQuantity] = useState('1개');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -38,9 +49,11 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
       setQuantity(initialQuantity || '1개');
       const isLikelySideDish = /김치|볶음|조림|무침|장아찌|젓갈|나물/i.test(initialName);
       setItemType(isLikelySideDish ? 'side_dish' : 'ingredient');
+      setDateManageType(isLikelySideDish ? 'registered' : 'expiry');
       const d = new Date();
       d.setDate(d.getDate() + 3);
       setExpiryDate(d.toISOString().slice(0, 10));
+      setRegisteredDate(new Date().toISOString().slice(0, 10));
       setErrorMsg(null);
     }
   }, [isOpen, initialName, initialQuantity]);
@@ -48,6 +61,7 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
   if (!isOpen) return null;
 
   const dday = calculateDDay(expiryDate);
+  const storageDay = calculateStorageDay(registeredDate, undefined, itemType);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,11 +71,14 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
     }
     setErrorMsg(null);
     try {
+      const isRegistered = dateManageType === 'registered';
       await onConfirm({
         name: name.trim(),
-        expiryDate: expiryDate || '정보 없음',
+        expiryDate: isRegistered ? registeredDate : (expiryDate || '정보 없음'),
         quantity: quantity.trim() || '1개',
         itemType,
+        dateManageType,
+        registeredDate: isRegistered ? registeredDate : undefined,
       });
       onClose();
     } catch (err: any) {
@@ -159,38 +176,103 @@ export const RegisterIngredientModal: React.FC<RegisterIngredientModalProps> = (
             />
           </div>
 
-          {/* Expiry Date */}
+          {/* Date Management Mode Selector */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-bold text-slate-700">
-                유통기한 (YYYY-MM-DD)
-              </label>
-              {/* Dynamic status preview based on remaining expiry date */}
-              <span
-                className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
-                  dday.status === 'expired'
-                    ? 'bg-rose-100 text-rose-700 border border-rose-200'
-                    : dday.status === 'warning'
-                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                    : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+            <label className="text-xs font-bold text-slate-700 block mb-1.5">
+              날짜 관리 방식
+            </label>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setDateManageType('expiry')}
+                className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  dateManageType === 'expiry'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                자동 판정: {dday.label}
-              </span>
+                <Calendar className="w-3.5 h-3.5" />
+                <span>유통기한 기준</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDateManageType('registered')}
+                className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  dateManageType === 'registered'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>등록일(보관일) 기준</span>
+              </button>
             </div>
-            <div className="relative">
-              <input
-                type="date"
-                value={expiryDate}
-                onChange={(e) => setExpiryDate(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-xs font-medium outline-none focus:border-emerald-500 focus:bg-white"
-                required
-              />
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              * 신선도 상태는 유통기한 날짜를 기준으로 자동 판별되어 냉장고에 노출됩니다.
-            </p>
           </div>
+
+          {/* Date Input (Expiry or Registration) */}
+          {dateManageType === 'expiry' ? (
+            <div>
+              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                <label className="text-xs font-bold text-slate-700">
+                  유통기한 (소비기한) <span className="text-rose-500">*</span>
+                </label>
+                <span
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                    dday.status === 'expired'
+                      ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                      : dday.status === 'warning'
+                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                      : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                  }`}
+                >
+                  자동 판정: {dday.label}
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={expiryDate}
+                  onChange={(e) => setExpiryDate(e.target.value)}
+                  className="w-full min-w-0 max-w-full box-border px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-xs font-medium outline-none focus:border-emerald-500 focus:bg-white cursor-pointer"
+                  required
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                * 유통기한 날짜를 기준으로 신선도 상태와 구출 요리가 판별됩니다.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                <label className="text-xs font-bold text-slate-700">
+                  등록일 (보관 시작일) <span className="text-blue-500">*</span>
+                </label>
+                <span
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                    storageDay.status === 'expired'
+                      ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                      : storageDay.status === 'warning'
+                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                      : 'bg-blue-100 text-blue-800 border border-blue-200'
+                  }`}
+                >
+                  보관 상태: {storageDay.label}
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={registeredDate}
+                  onChange={(e) => setRegisteredDate(e.target.value)}
+                  className="w-full min-w-0 max-w-full box-border px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-xs font-medium outline-none focus:border-blue-500 focus:bg-white cursor-pointer"
+                  required
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                * 등록일(만든 날/보관 시작일)을 기준으로 경과 일수(N일차)를 관리합니다.
+              </p>
+            </div>
+          )}
 
           {/* Quantity (Free Unit) */}
           <div>

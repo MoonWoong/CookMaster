@@ -17,9 +17,15 @@ import {
   Star,
   UtensilsCrossed,
   X,
+  Clock,
 } from 'lucide-react';
-import { IngredientStatus, ParsedIngredient } from '../types/fridge';
-import { calculateDDay, calculateRemainingQuantity } from '../utils/recipeLogic';
+import { IngredientStatus, ParsedIngredient, ItemType, DateManageType } from '../types/fridge';
+import {
+  calculateDDay,
+  calculateStorageDay,
+  calculateIngredientFreshness,
+  calculateRemainingQuantity,
+} from '../utils/recipeLogic';
 import { getRecognizableIcon, generateStylizedFoodSvg } from '../utils/ingredientIcons';
 import { fetchOrGenerateIngredientImage } from '../lib/ingredientsService';
 import { InventoryUsageModal } from './InventoryUsageModal';
@@ -50,12 +56,14 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
 
   // Dynamically evaluate freshness status and item type for each ingredient
   const ingredientsWithEvaluatedStatus = ingredients.map((item) => {
-    const dday = calculateDDay(item.expiryDate);
+    const freshness = calculateIngredientFreshness(item);
     return {
       ...item,
       itemType: item.itemType || 'ingredient',
-      evaluatedStatus: dday.status,
-      dday,
+      dateManageType: item.dateManageType || 'expiry',
+      evaluatedStatus: freshness.status,
+      freshness,
+      dday: { label: freshness.label, status: freshness.status },
     };
   });
 
@@ -416,7 +424,7 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
                         <span className="font-bold text-sm leading-tight text-slate-900 block truncate">
                           {item.name}
                         </span>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <button
                             type="button"
                             onClick={() =>
@@ -433,9 +441,24 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
                           >
                             {item.itemType === 'side_dish' ? '🍱 반찬' : '🥬 식재료'}
                           </button>
-                          <span className="text-[10px] text-slate-400 block truncate">
-                            {iconMatch.category}
-                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateIngredient(item.id, {
+                                dateManageType: item.dateManageType === 'registered' ? 'expiry' : 'registered',
+                                registeredDate: item.registeredDate || item.expiryDate || new Date().toISOString().slice(0, 10),
+                              })
+                            }
+                            className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold border transition-all cursor-pointer ${
+                              item.dateManageType === 'registered'
+                                ? 'bg-blue-100 text-blue-900 border-blue-300 hover:bg-blue-200'
+                                : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                            }`}
+                            title="클릭하여 유통기한/등록일 관리 방식 전환"
+                          >
+                            {item.dateManageType === 'registered' ? '📝 등록일' : '📅 유통기한'}
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -521,24 +544,36 @@ export const IngredientsDashboard: React.FC<IngredientsDashboardProps> = ({
                   )}
                 </div>
 
-                {/* Expiry Date and Automatic Freshness Judgement Badge */}
+                {/* Expiry Date / Registration Date and Automatic Freshness Judgement Badge */}
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200/50 text-xs">
-                  <div className="flex items-center gap-1 text-slate-500">
-                    <Calendar className="w-3 h-3 text-slate-400" />
-                    <span className="text-[11px] font-medium">{item.expiryDate}</span>
+                  <div className="flex items-center gap-1 text-slate-500 min-w-0">
+                    {item.dateManageType === 'registered' ? (
+                      <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    ) : (
+                      <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    )}
+                    <span className="text-[11px] font-medium truncate">
+                      {item.freshness.subLabel}
+                    </span>
                   </div>
 
                   <span
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold select-none shadow-2xs ${
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold select-none shadow-2xs shrink-0 ${
                       isExpired
                         ? 'bg-rose-600 text-white'
                         : isWarning
                         ? 'bg-amber-500 text-white'
+                        : item.dateManageType === 'registered'
+                        ? 'bg-blue-600 text-white'
                         : 'bg-emerald-600 text-white'
                     }`}
-                    title={`남은 유통기한 기준 자동 판정 (${dday.label})`}
+                    title={item.freshness.subLabel}
                   >
-                    {isExpired ? `🚨 ${dday.label}` : isWarning ? `⚠️ ${dday.label}` : `✅ ${dday.label}`}
+                    {isExpired
+                      ? `🚨 ${item.freshness.label}`
+                      : isWarning
+                      ? `⚠️ ${item.freshness.label}`
+                      : `✅ ${item.freshness.label}`}
                   </span>
                 </div>
               </div>
